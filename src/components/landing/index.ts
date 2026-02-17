@@ -1,0 +1,10 @@
+export { Header } from './Header';
+export { HeroSection } from './HeroSection';
+export { TrustStrip } from './TrustStrip';
+export { HowItWorks } from './HowItWorks';
+export { Features } from './Features';
+export { WhoItsFor } from './WhoItsFor';
+export { DashboardPreview } from './DashboardPreview';
+export { Pricing } from './Pricing';
+export { CTASection } from './CTASection';
+export { Footer } from './Footer';
