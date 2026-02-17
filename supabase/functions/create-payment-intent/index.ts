@@ -26,10 +26,13 @@ Deno.serve(async (req: Request) => {
     const paymongoSecretKey = Deno.env.get("PAYMONGO_SECRET_KEY");
 
     if (!paymongoSecretKey) {
+      console.error(
+        "PAYMONGO_SECRET_KEY is not configured in Supabase environment variables"
+      );
       return new Response(
         JSON.stringify({
           error:
-            "Payment service is not configured. Please contact support.",
+            "Payment service is not configured. Please add PAYMONGO_SECRET_KEY to your Supabase project settings.",
         }),
         {
           status: 503,
