@@ -54,7 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        (async () => {
+          await fetchProfile(session.user.id);
+        })();
       } else {
         setProfile(null);
         setSubscription(null);
@@ -101,8 +103,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshProfile() {
-    if (user) {
-      await fetchProfile(user.id);
+    const userId = user?.id;
+    if (userId) {
+      await fetchProfile(userId);
+      return;
+    }
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+    if (currentSession?.user) {
+      setUser(currentSession.user);
+      setSession(currentSession);
+      await fetchProfile(currentSession.user.id);
     }
   }
 

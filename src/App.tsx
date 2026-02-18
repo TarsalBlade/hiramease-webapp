@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard' | 'business_model';
 
 function AppContent() {
-  const { user, profile, subscription, loading, refreshSubscription } = useAuth();
+  const { user, profile, subscription, loading, refreshSubscription, refreshProfile } = useAuth();
   const [view, setView] = useState<AppView>('landing');
 
   useEffect(() => {
@@ -30,12 +30,20 @@ function AppContent() {
     }
   }, [user, profile, subscription, loading]);
 
+  useEffect(() => {
+    if (!loading && user && !profile) {
+      const timer = setTimeout(() => {
+        refreshProfile();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, user, profile]);
+
   const handleSubscriptionComplete = async () => {
     await refreshSubscription();
     setView('dashboard');
   };
 
-  // Global loading screen
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -47,7 +55,6 @@ function AppContent() {
     );
   }
 
-  // Waiting for profile to load
   if ((view === 'dashboard' || view === 'subscribe') && user && !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

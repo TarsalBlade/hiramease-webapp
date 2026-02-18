@@ -51,6 +51,7 @@ export function BorrowerDashboard() {
   const [showNewApplicationModal, setShowNewApplicationModal] = useState(false);
   const [showSelectTenantModal, setShowSelectTenantModal] = useState(false);
   const [showSwitchCompany, setShowSwitchCompany] = useState(false);
+  const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
 
   const navItems = [
     { icon: <FileText className="w-5 h-5" />, label: 'My Applications', href: 'applications' },
@@ -64,57 +65,59 @@ export function BorrowerDashboard() {
     }
   }, [user?.id, activeTenantId]);
 
-  const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
-
   async function fetchData() {
     setLoading(true);
 
-    let borrowerQuery = supabase
-      .from('borrower_profiles')
-      .select('*')
-      .eq('user_id', user?.id);
+    try {
+      let borrowerQuery = supabase
+        .from('borrower_profiles')
+        .select('*')
+        .eq('user_id', user?.id);
 
-    if (activeTenantId) {
-      borrowerQuery = borrowerQuery.eq('tenant_id', activeTenantId);
-    }
-
-    const { data: borrowerRows } = await borrowerQuery.order('created_at', { ascending: false }).limit(1);
-    const borrower = borrowerRows?.[0] || null;
-
-    setBorrowerProfile(borrower);
-
-    if (borrower) {
-      const [appsResult, tenantResult] = await Promise.all([
-        supabase
-          .from('credit_applications')
-          .select(`
-            *,
-            documents(*),
-            decision:application_decisions(*),
-            ai_scoring:ai_scoring_results(*)
-          `)
-          .eq('borrower_id', borrower.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('tenants')
-          .select('id, company_name, logo_url, description')
-          .eq('id', borrower.tenant_id)
-          .maybeSingle(),
-      ]);
-
-      if (appsResult.data) {
-        setApplications(
-          appsResult.data.map((app) => ({
-            ...app,
-            decision: Array.isArray(app.decision) ? app.decision[0] : app.decision,
-            ai_scoring: Array.isArray(app.ai_scoring) ? app.ai_scoring[0] : app.ai_scoring,
-          }))
-        );
+      if (activeTenantId) {
+        borrowerQuery = borrowerQuery.eq('tenant_id', activeTenantId);
       }
 
-      if (tenantResult.data) {
-        setCurrentTenant(tenantResult.data as TenantInfo);
+      const { data: borrowerRows } = await borrowerQuery.order('created_at', { ascending: false }).limit(1);
+      const borrower = borrowerRows?.[0] || null;
+
+      setBorrowerProfile(borrower);
+
+      if (borrower) {
+        const [appsResult, tenantResult] = await Promise.all([
+          supabase
+            .from('credit_applications')
+            .select(`
+              *,
+              documents(*),
+              decision:application_decisions(*),
+              ai_scoring:ai_scoring_results(*)
+            `)
+            .eq('borrower_id', borrower.id)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('tenants')
+            .select('id, company_name, logo_url, description')
+            .eq('id', borrower.tenant_id)
+            .maybeSingle(),
+        ]);
+
+        if (appsResult.data) {
+          setApplications(
+            appsResult.data.map((app) => ({
+              ...app,
+              decision: Array.isArray(app.decision) ? app.decision[0] : app.decision,
+              ai_scoring: Array.isArray(app.ai_scoring) ? app.ai_scoring[0] : app.ai_scoring,
+            }))
+          );
+        }
+
+        if (tenantResult.data) {
+          setCurrentTenant(tenantResult.data as TenantInfo);
+        }
       }
+    } catch (err) {
+      console.error('Error loading borrower data:', err);
     }
 
     setLoading(false);
