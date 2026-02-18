@@ -228,6 +228,25 @@ export function LendingAdminDashboard() {
         phone: borrowerUser.phone,
       },
     });
+
+    try {
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`;
+      await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+        body: JSON.stringify({
+          user_id: borrower.user_id,
+          tenant_id: profile.tenant_id,
+          title: template.subject,
+          message: inAppMessage,
+          type: decision === 'approved' ? 'loan_approved' : 'loan_rejected',
+          email: borrowerUser.email,
+          phone: borrowerUser.phone,
+          email_body: emailBody,
+          sms_body: smsBody,
+        }),
+      });
+    } catch {}
   }
 
   async function handleDecision(

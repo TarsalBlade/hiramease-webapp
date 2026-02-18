@@ -1,73 +1,60 @@
 import { useState, useEffect } from 'react';
-import { Building2, Shield, Search, MoreVertical, CheckCircle, Clock, XCircle, CreditCard, Package } from 'lucide-react';
+import {
+  Building2,
+  Search,
+  MoreVertical,
+  CheckCircle,
+  Clock,
+  XCircle,
+  CreditCard,
+  Package,
+  Users,
+  LayoutDashboard,
+  Activity,
+  Eye,
+} from 'lucide-react';
 import { DashboardLayout } from '../../components/dashboard/DashboardLayout';
 import { PaymentManagement } from '../../components/payment';
 import { SubscriptionPlanManager } from '../../components/dashboard/SubscriptionPlanManager';
+import { UserManagement, CompanyDetail, ActivityLogs, SystemOverview } from '../../components/admin';
 import { supabase } from '../../lib/supabase';
 import type { Tenant } from '../../types/database';
 
-type TabType = 'companies' | 'plans' | 'payments' | 'audit';
-
-interface AuditLogEntry {
-  id: string;
-  tenant_id: string | null;
-  user_id: string | null;
-  action: string;
-  entity_type: string;
-  entity_id: string | null;
-  old_values: Record<string, unknown> | null;
-  new_values: Record<string, unknown> | null;
-  created_at: string;
-  tenant?: { company_name: string } | null;
-}
+type TabType = 'overview' | 'companies' | 'users' | 'plans' | 'payments' | 'logs';
 
 export function SuperAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<TabType>('companies');
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
 
   const navItems = [
+    { icon: <LayoutDashboard className="w-5 h-5" />, label: 'Overview', href: 'overview' },
     { icon: <Building2 className="w-5 h-5" />, label: 'Companies', href: 'companies' },
+    { icon: <Users className="w-5 h-5" />, label: 'Users', href: 'users' },
     { icon: <Package className="w-5 h-5" />, label: 'Plans & Pricing', href: 'plans' },
     { icon: <CreditCard className="w-5 h-5" />, label: 'Payments', href: 'payments' },
-    { icon: <Shield className="w-5 h-5" />, label: 'Audit Logs', href: 'audit' },
+    { icon: <Activity className="w-5 h-5" />, label: 'Logs', href: 'logs' },
   ];
 
   useEffect(() => {
-    fetchData();
+    if (activeTab === 'companies') fetchCompanies();
   }, [activeTab]);
 
-  async function fetchData() {
+  async function fetchCompanies() {
     setLoading(true);
-
-    if (activeTab === 'companies') {
-      const { data } = await supabase
-        .from('tenants')
-        .select('*')
-        .order('created_at', { ascending: false });
-      setTenants(data || []);
-    } else if (activeTab === 'audit') {
-      const { data } = await supabase
-        .from('audit_logs')
-        .select('*, tenant:tenants(company_name)')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      setAuditLogs(
-        (data || []).map((log) => ({
-          ...log,
-          tenant: Array.isArray(log.tenant) ? log.tenant[0] : log.tenant,
-        }))
-      );
-    }
-
+    const { data } = await supabase
+      .from('tenants')
+      .select('*')
+      .order('created_at', { ascending: false });
+    setTenants(data || []);
     setLoading(false);
   }
 
   async function updateTenantStatus(tenantId: string, status: 'active' | 'suspended') {
     await supabase.from('tenants').update({ status }).eq('id', tenantId);
-    fetchData();
+    fetchCompanies();
   }
 
   const filteredTenants = tenants.filter(
@@ -80,13 +67,16 @@ export function SuperAdminDashboard() {
     totalTenants: tenants.length,
     activeTenants: tenants.filter((t) => t.status === 'active').length,
     pendingTenants: tenants.filter((t) => t.status === 'pending').length,
+    suspendedTenants: tenants.filter((t) => t.status === 'suspended').length,
   };
 
   const titles: Record<TabType, string> = {
+    overview: 'System Overview',
     companies: 'Lending Companies',
+    users: 'User Management',
     plans: 'Plans & Pricing',
     payments: 'Payment Management',
-    audit: 'Audit Logs',
+    logs: 'System Logs',
   };
 
   return (
@@ -96,27 +86,15 @@ export function SuperAdminDashboard() {
       onNavChange={(nav) => setActiveTab(nav as TabType)}
       title={titles[activeTab]}
     >
+      {activeTab === 'overview' && <SystemOverview />}
+
       {activeTab === 'companies' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-3 gap-4">
-            <StatCard
-              icon={<Building2 className="w-5 h-5" />}
-              label="Total Companies"
-              value={stats.totalTenants}
-              color="bg-primary-100 text-primary-600"
-            />
-            <StatCard
-              icon={<CheckCircle className="w-5 h-5" />}
-              label="Active"
-              value={stats.activeTenants}
-              color="bg-green-100 text-green-600"
-            />
-            <StatCard
-              icon={<Clock className="w-5 h-5" />}
-              label="Pending"
-              value={stats.pendingTenants}
-              color="bg-yellow-100 text-yellow-600"
-            />
+          <div className="grid grid-cols-4 gap-4">
+            <StatCard icon={<Building2 className="w-5 h-5" />} label="Total" value={stats.totalTenants} color="bg-blue-50 text-blue-600" />
+            <StatCard icon={<CheckCircle className="w-5 h-5" />} label="Active" value={stats.activeTenants} color="bg-green-50 text-green-600" />
+            <StatCard icon={<Clock className="w-5 h-5" />} label="Pending" value={stats.pendingTenants} color="bg-yellow-50 text-yellow-600" />
+            <StatCard icon={<XCircle className="w-5 h-5" />} label="Suspended" value={stats.suspendedTenants} color="bg-red-50 text-red-600" />
           </div>
 
           <div className="flex gap-4">
@@ -141,70 +119,29 @@ export function SuperAdminDashboard() {
                 <p className="text-gray-500">No companies found</p>
               </div>
             ) : (
-              <TenantTable tenants={filteredTenants} onStatusChange={updateTenantStatus} />
+              <TenantTable
+                tenants={filteredTenants}
+                onStatusChange={updateTenantStatus}
+                onView={(id) => setSelectedCompany(id)}
+              />
             )}
           </div>
         </div>
       )}
 
-      {activeTab === 'plans' && (
-        <SubscriptionPlanManager />
-      )}
+      {activeTab === 'users' && <UserManagement />}
 
-      {activeTab === 'payments' && (
-        <PaymentManagement />
-      )}
+      {activeTab === 'plans' && <SubscriptionPlanManager />}
 
-      {activeTab === 'audit' && (
-        <div className="space-y-6">
-          <div className="card overflow-hidden">
-            {loading ? (
-              <div className="p-6"><LoadingState /></div>
-            ) : auditLogs.length === 0 ? (
-              <div className="p-8 text-center">
-                <Shield className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No audit logs yet</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Timestamp</th>
-                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Company</th>
-                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Action</th>
-                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Entity</th>
-                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {auditLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <p className="text-sm text-gray-900">{new Date(log.created_at).toLocaleString()}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="text-sm text-gray-600">{log.tenant?.company_name || 'System'}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <ActionBadge action={log.action} />
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="text-sm text-gray-600 capitalize">{log.entity_type.replace('_', ' ')}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="text-sm text-gray-500 max-w-xs truncate">
-                            {log.new_values ? JSON.stringify(log.new_values).slice(0, 50) + '...' : '-'}
-                          </p>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+      {activeTab === 'payments' && <PaymentManagement />}
+
+      {activeTab === 'logs' && <ActivityLogs />}
+
+      {selectedCompany && (
+        <CompanyDetail
+          tenantId={selectedCompany}
+          onClose={() => setSelectedCompany(null)}
+        />
       )}
     </DashboardLayout>
   );
@@ -220,7 +157,11 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
   );
 }
 
-function TenantTable({ tenants, onStatusChange }: { tenants: Tenant[]; onStatusChange: (id: string, status: 'active' | 'suspended') => void }) {
+function TenantTable({ tenants, onStatusChange, onView }: {
+  tenants: Tenant[];
+  onStatusChange: (id: string, status: 'active' | 'suspended') => void;
+  onView: (id: string) => void;
+}) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   return (
@@ -239,9 +180,18 @@ function TenantTable({ tenants, onStatusChange }: { tenants: Tenant[]; onStatusC
           {tenants.map((tenant) => (
             <tr key={tenant.id} className="hover:bg-gray-50">
               <td className="px-6 py-4">
-                <div>
-                  <p className="font-medium text-gray-900">{tenant.company_name}</p>
-                  <p className="text-sm text-gray-500">{tenant.email}</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {tenant.logo_url ? (
+                      <img src={tenant.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Building2 className="w-4 h-4 text-gray-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">{tenant.company_name}</p>
+                    <p className="text-sm text-gray-500">{tenant.email}</p>
+                  </div>
                 </div>
               </td>
               <td className="px-6 py-4">
@@ -254,34 +204,42 @@ function TenantTable({ tenants, onStatusChange }: { tenants: Tenant[]; onStatusC
                 <span className="text-sm text-gray-600">{new Date(tenant.created_at).toLocaleDateString()}</span>
               </td>
               <td className="px-6 py-4">
-                <div className="relative">
-                  <button onClick={() => setOpenMenu(openMenu === tenant.id ? null : tenant.id)} className="p-2 hover:bg-gray-100 rounded-lg">
-                    <MoreVertical className="w-4 h-4 text-gray-500" />
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onView(tenant.id)}
+                    className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="View Details"
+                  >
+                    <Eye className="w-4 h-4" />
                   </button>
-
-                  {openMenu === tenant.id && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                      <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
-                        {tenant.status !== 'active' && (
-                          <button
-                            onClick={() => { onStatusChange(tenant.id, 'active'); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-green-600 hover:bg-green-50"
-                          >
-                            Activate
-                          </button>
-                        )}
-                        {tenant.status !== 'suspended' && (
-                          <button
-                            onClick={() => { onStatusChange(tenant.id, 'suspended'); setOpenMenu(null); }}
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                          >
-                            Suspend
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
+                  <div className="relative">
+                    <button onClick={() => setOpenMenu(openMenu === tenant.id ? null : tenant.id)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                      <MoreVertical className="w-4 h-4 text-gray-500" />
+                    </button>
+                    {openMenu === tenant.id && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
+                        <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
+                          {tenant.status !== 'active' && (
+                            <button
+                              onClick={() => { onStatusChange(tenant.id, 'active'); setOpenMenu(null); }}
+                              className="w-full text-left px-4 py-2 text-sm text-green-600 hover:bg-green-50"
+                            >
+                              Activate
+                            </button>
+                          )}
+                          {tenant.status !== 'suspended' && (
+                            <button
+                              onClick={() => { onStatusChange(tenant.id, 'suspended'); setOpenMenu(null); }}
+                              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                            >
+                              Suspend
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </td>
             </tr>
@@ -306,33 +264,15 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function ActionBadge({ action }: { action: string }) {
-  const styles: Record<string, string> = {
-    create: 'bg-green-100 text-green-700',
-    update: 'bg-blue-100 text-blue-700',
-    delete: 'bg-red-100 text-red-700',
-    decision: 'bg-primary-100 text-primary-700',
-    override: 'bg-yellow-100 text-yellow-700',
-  };
-
-  const style = Object.entries(styles).find(([key]) => action.toLowerCase().includes(key))?.[1] || 'bg-gray-100 text-gray-700';
-
-  return (
-    <span className={`px-2.5 py-1 text-xs font-medium rounded-full capitalize ${style}`}>
-      {action.replace('_', ' ')}
-    </span>
-  );
-}
-
 function LoadingState() {
   return (
     <div className="space-y-4">
       {[1, 2, 3].map((i) => (
         <div key={i} className="animate-pulse flex items-center gap-4">
-          <div className="w-10 h-10 bg-gray-200 rounded-lg"></div>
+          <div className="w-10 h-10 bg-gray-200 rounded-lg" />
           <div className="flex-1 space-y-2">
-            <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-            <div className="h-3 bg-gray-200 rounded w-1/4"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/3" />
+            <div className="h-3 bg-gray-200 rounded w-1/4" />
           </div>
         </div>
       ))}
