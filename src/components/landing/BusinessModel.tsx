@@ -71,8 +71,8 @@ export function BusinessModel({ onGetStarted }: BusinessModelProps) {
             />
             <RevenueStream
               icon={<Zap className="w-6 h-6" />}
-              title="Transaction Fees"
-              description="Per-transaction fees for payment processing through integrated payment gateways like PayMongo."
+              title="Origination Fees"
+              description="Percentage-based fees on loan disbursements processed through the platform, aligning revenue with lending volume."
               percentage="20%"
               color="bg-green-100 text-green-600"
             />
