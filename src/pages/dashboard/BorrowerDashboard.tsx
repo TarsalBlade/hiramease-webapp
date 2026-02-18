@@ -19,6 +19,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { DashboardLayout } from '../../components/dashboard/DashboardLayout';
+import { FileUpload as FileUploadComponent } from '../../components/dashboard/FileUpload';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { PaymentHistory } from '../../components/payment';
@@ -1541,35 +1542,14 @@ function ComputationRow({ label, value }: { label: string; value: string }) {
 }
 
 function FileUploadField({ label, description, type, files, onUpload }: { label: string; description: string; type: string; files: { type: string; file: File }[]; onUpload: (type: string, file: File) => void }) {
-  const existingFile = files.find((f) => f.type === type);
-
   return (
-    <div>
-      <label className="label">{label}</label>
-      <p className="text-xs text-gray-500 mb-2">{description}</p>
-      <div className="border-2 border-dashed border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
-        {existingFile ? (
-          <div className="flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-green-500" />
-            <span className="text-sm text-gray-700">{existingFile.file.name}</span>
-          </div>
-        ) : (
-          <label className="cursor-pointer flex items-center justify-center gap-2 text-gray-500">
-            <Upload className="w-5 h-5" />
-            <span className="text-sm">Click to upload</span>
-            <input
-              type="file"
-              className="hidden"
-              accept=".pdf,.jpg,.jpeg,.png"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onUpload(type, file);
-              }}
-            />
-          </label>
-        )}
-      </div>
-    </div>
+    <FileUploadComponent
+      label={label}
+      description={description}
+      type={type}
+      files={files}
+      onUpload={onUpload}
+    />
   );
 }
 

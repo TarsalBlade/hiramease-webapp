@@ -14,12 +14,13 @@ import {
 interface LandingPageProps {
   onLoginClick: () => void;
   onSignUpClick: () => void;
+  onBusinessModel?: () => void;
 }
 
-export function LandingPage({ onLoginClick, onSignUpClick }: LandingPageProps) {
+export function LandingPage({ onLoginClick, onSignUpClick, onBusinessModel }: LandingPageProps) {
   return (
     <div className="min-h-screen bg-white">
-      <Header onLoginClick={onLoginClick} onSignUpClick={onSignUpClick} />
+      <Header onLoginClick={onLoginClick} onSignUpClick={onSignUpClick} onBusinessModel={onBusinessModel} />
       <main>
         <HeroSection onStartTrialClick={onSignUpClick} onDemoClick={onLoginClick} />
         <TrustStrip />

@@ -23,7 +23,7 @@ export function NotificationTemplates({ tenantId }: NotificationTemplatesProps) 
   const [templates, setTemplates] = useState<Record<string, NotificationTemplate>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'loan_approval' | 'loan_rejection'>('loan_approval');
+  const [activeTab, setActiveTab] = useState<'loan_approval' | 'loan_rejection' | 'payment_reminder' | 'payment_overdue'>('loan_approval');
 
   useEffect(() => {
     if (tenantId) {
@@ -34,27 +34,22 @@ export function NotificationTemplates({ tenantId }: NotificationTemplatesProps) 
   async function fetchTemplates() {
     setLoading(true);
 
-    const approvalTemplate = await supabase
-      .rpc('get_or_create_notification_template', {
-        p_tenant_id: tenantId,
-        p_template_type: 'loan_approval',
-      });
-
-    const rejectionTemplate = await supabase
-      .rpc('get_or_create_notification_template', {
-        p_tenant_id: tenantId,
-        p_template_type: 'loan_rejection',
-      });
+    const templateTypes = ['loan_approval', 'loan_rejection', 'payment_reminder', 'payment_overdue'];
+    const results = await Promise.all(
+      templateTypes.map(type =>
+        supabase.rpc('get_or_create_notification_template', {
+          p_tenant_id: tenantId,
+          p_template_type: type,
+        })
+      )
+    );
 
     const newTemplates: Record<string, NotificationTemplate> = {};
-
-    if (approvalTemplate.data) {
-      newTemplates.loan_approval = approvalTemplate.data;
-    }
-
-    if (rejectionTemplate.data) {
-      newTemplates.loan_rejection = rejectionTemplate.data;
-    }
+    results.forEach((result, i) => {
+      if (result.data) {
+        newTemplates[templateTypes[i]] = result.data;
+      }
+    });
 
     setTemplates(newTemplates);
     setLoading(false);
@@ -114,32 +109,30 @@ export function NotificationTemplates({ tenantId }: NotificationTemplatesProps) 
           <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-blue-700">
             <p className="font-medium mb-1">Notification Templates</p>
-            <p>Customize the messages sent to borrowers when their loan applications are approved or rejected. Use placeholders like {'{{loan_amount}}'}, {'{{loan_term}}'}, {'{{monthly_payment}}'}, and {'{{rejection_reason}}'} which will be automatically replaced with actual values.</p>
+            <p>Customize the messages sent to borrowers. Use placeholders like {'{{loan_amount}}'}, {'{{loan_term}}'}, {'{{monthly_payment}}'}, {'{{rejection_reason}}'}, {'{{due_date}}'}, {'{{amount_due}}'}, and {'{{days_overdue}}'} which will be automatically replaced with actual values.</p>
           </div>
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-gray-200">
-        <button
-          onClick={() => setActiveTab('loan_approval')}
-          className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'loan_approval'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Loan Approval
-        </button>
-        <button
-          onClick={() => setActiveTab('loan_rejection')}
-          className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'loan_rejection'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Loan Rejection
-        </button>
+      <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
+        {([
+          { key: 'loan_approval', label: 'Loan Approval' },
+          { key: 'loan_rejection', label: 'Loan Rejection' },
+          { key: 'payment_reminder', label: 'Payment Reminder' },
+          { key: 'payment_overdue', label: 'Payment Overdue' },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === tab.key
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {currentTemplate && (

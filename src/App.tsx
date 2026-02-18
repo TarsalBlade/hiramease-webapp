@@ -4,9 +4,10 @@ import { LandingPage } from './pages/LandingPage';
 import { LoginPage, SignUpPage } from './pages/auth';
 import { SuperAdminDashboard, LendingAdminDashboard, BorrowerDashboard } from './pages/dashboard';
 import { SubscribePage } from './pages/SubscribePage';
+import { BusinessModel } from './components/landing/BusinessModel';
 import { Loader2 } from 'lucide-react';
 
-type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard';
+type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard' | 'business_model';
 
 function AppContent() {
   const { user, profile, subscription, loading, refreshSubscription } = useAuth();
@@ -80,6 +81,10 @@ function AppContent() {
     return null;
   }
 
+  if (view === 'business_model') {
+    return <BusinessModel onGetStarted={() => setView('signup')} />;
+  }
+
   // Login page
   if (view === 'login') {
     return (
@@ -103,11 +108,11 @@ function AppContent() {
     );
   }
 
-  // Default landing page
   return (
     <LandingPage
       onLoginClick={() => setView('login')}
       onSignUpClick={() => setView('signup')}
+      onBusinessModel={() => setView('business_model')}
     />
   );
 }

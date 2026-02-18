@@ -4,9 +4,10 @@ import { Shield, Menu, X } from 'lucide-react';
 interface HeaderProps {
   onLoginClick: () => void;
   onSignUpClick: () => void;
+  onBusinessModel?: () => void;
 }
 
-export function Header({ onLoginClick, onSignUpClick }: HeaderProps) {
+export function Header({ onLoginClick, onSignUpClick, onBusinessModel }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const scrollToSection = (id: string) => {
@@ -41,6 +42,11 @@ export function Header({ onLoginClick, onSignUpClick }: HeaderProps) {
             <button onClick={() => scrollToSection('pricing')} className="text-gray-600 hover:text-primary-600 transition-colors">
               Pricing
             </button>
+            {onBusinessModel && (
+              <button onClick={onBusinessModel} className="text-gray-600 hover:text-primary-600 transition-colors">
+                Business Model
+              </button>
+            )}
           </div>
 
           <div className="hidden md:flex items-center gap-4">
@@ -75,6 +81,11 @@ export function Header({ onLoginClick, onSignUpClick }: HeaderProps) {
               <button onClick={() => scrollToSection('pricing')} className="text-left text-gray-600 hover:text-primary-600 py-2">
                 Pricing
               </button>
+              {onBusinessModel && (
+                <button onClick={() => { onBusinessModel(); setMobileMenuOpen(false); }} className="text-left text-gray-600 hover:text-primary-600 py-2">
+                  Business Model
+                </button>
+              )}
               <div className="flex flex-col gap-3 pt-4 border-t border-gray-100">
                 <button onClick={onLoginClick} className="btn-outline w-full">
                   Login

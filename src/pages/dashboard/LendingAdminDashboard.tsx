@@ -26,7 +26,7 @@ import {
   DollarSign,
   Building2,
 } from 'lucide-react';
-import { DashboardLayout, SubscriptionBilling, LendingSettings, BorrowerManagement, NotificationTemplates, ManualPaymentForm, CompanyProfile } from '../../components/dashboard';
+import { DashboardLayout, SubscriptionBilling, LendingSettings, BorrowerManagement, NotificationTemplates, ManualPaymentForm, CompanyProfile, AnalyticsDashboard, LoanDisbursement, FinancialStatements } from '../../components/dashboard';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import type { CreditApplication, BorrowerProfile, UserProfile, Document, AIScoringResult, ScoringConfiguration, BorrowerCreditHistory, FactorExplanation } from '../../types/database';
@@ -39,7 +39,7 @@ import {
   logDecisionAudit,
 } from '../../services/creditScoringEngine';
 
-type TabType = 'applications' | 'borrowers' | 'scoring' | 'lending_settings' | 'payments' | 'notifications' | 'company' | 'billing';
+type TabType = 'overview' | 'applications' | 'borrowers' | 'loans' | 'scoring' | 'lending_settings' | 'payments' | 'notifications' | 'company' | 'billing' | 'financials';
 
 interface ApplicationWithDetails extends CreditApplication {
   borrower?: BorrowerProfile & { user?: UserProfile };
@@ -50,7 +50,7 @@ interface ApplicationWithDetails extends CreditApplication {
 
 export function LendingAdminDashboard() {
   const { user, profile } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('applications');
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [applications, setApplications] = useState<ApplicationWithDetails[]>([]);
   const [scoringConfig, setScoringConfig] = useState<ScoringConfiguration | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,13 +61,16 @@ export function LendingAdminDashboard() {
   const unreadCount = applications.filter((a) => !a.is_read_by_admin && ['submitted', 'under_review', 'verified'].includes(a.status)).length;
 
   const navItems = [
+    { icon: <TrendingUp className="w-5 h-5" />, label: 'Overview', href: 'overview' },
     { icon: <FileText className="w-5 h-5" />, label: 'Applications', href: 'applications', badge: unreadCount > 0 ? unreadCount : undefined },
     { icon: <Users className="w-5 h-5" />, label: 'Borrowers', href: 'borrowers' },
-    { icon: <DollarSign className="w-5 h-5" />, label: 'Payments', href: 'payments' },
+    { icon: <DollarSign className="w-5 h-5" />, label: 'Loans', href: 'loans' },
+    { icon: <CreditCard className="w-5 h-5" />, label: 'Payments', href: 'payments' },
     { icon: <Settings className="w-5 h-5" />, label: 'Lending Settings', href: 'lending_settings' },
     { icon: <Sliders className="w-5 h-5" />, label: 'Credit Scoring', href: 'scoring' },
     { icon: <Bell className="w-5 h-5" />, label: 'Notifications', href: 'notifications' },
     { icon: <Building2 className="w-5 h-5" />, label: 'Company Profile', href: 'company' },
+    { icon: <TrendingDown className="w-5 h-5" />, label: 'Financials', href: 'financials' },
     { icon: <CreditCard className="w-5 h-5" />, label: 'Billing', href: 'billing' },
   ];
 
@@ -344,13 +347,16 @@ export function LendingAdminDashboard() {
   };
 
   const titles: Record<TabType, string> = {
+    overview: 'Dashboard Overview',
     applications: 'Credit Applications',
     borrowers: 'Borrower Management',
+    loans: 'Loan Management',
     payments: 'Payment Management',
     scoring: 'Credit Scoring',
     lending_settings: 'Lending Settings',
     notifications: 'Notification Templates',
     company: 'Company Profile',
+    financials: 'Financial Statements',
     billing: 'Subscription & Billing',
   };
 
@@ -361,6 +367,10 @@ export function LendingAdminDashboard() {
       onNavChange={(nav) => setActiveTab(nav as TabType)}
       title={titles[activeTab]}
     >
+      {activeTab === 'overview' && profile?.tenant_id && (
+        <AnalyticsDashboard tenantId={profile.tenant_id} />
+      )}
+
       {activeTab === 'applications' && (
         <div className="space-y-6">
           <div className="grid grid-cols-4 gap-4">
@@ -466,6 +476,10 @@ export function LendingAdminDashboard() {
         <BorrowerManagement tenantId={profile.tenant_id} />
       )}
 
+      {activeTab === 'loans' && profile?.tenant_id && (
+        <LoanDisbursement tenantId={profile.tenant_id} />
+      )}
+
       {activeTab === 'scoring' && scoringConfig && (
         <ScoringConfigPanel config={scoringConfig} onUpdate={handleUpdateScoringConfig} />
       )}
@@ -484,6 +498,10 @@ export function LendingAdminDashboard() {
 
       {activeTab === 'company' && profile?.tenant_id && (
         <CompanyProfile tenantId={profile.tenant_id} />
+      )}
+
+      {activeTab === 'financials' && profile?.tenant_id && (
+        <FinancialStatements tenantId={profile.tenant_id} />
       )}
 
       {activeTab === 'billing' && (

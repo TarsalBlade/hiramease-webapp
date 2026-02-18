@@ -6,3 +6,7 @@ export { BorrowerManagement } from './BorrowerManagement';
 export { NotificationTemplates } from './NotificationTemplates';
 export { ManualPaymentForm } from './ManualPaymentForm';
 export { CompanyProfile } from './CompanyProfile';
+export { AnalyticsDashboard } from './AnalyticsDashboard';
+export { LoanDisbursement } from './LoanDisbursement';
+export { FinancialStatements } from './FinancialStatements';
+export { FileUpload } from './FileUpload';
