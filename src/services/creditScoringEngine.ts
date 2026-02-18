@@ -98,23 +98,27 @@ export function checkDocumentsVerified(documents: Document[]): boolean {
 }
 
 export function calculateIncomeStabilityScore(borrower: BorrowerProfile): { score: number; details: string[] } {
-  let score = 50;
+  let score = 40;
   const details: string[] = [];
 
   if (borrower.employment_status === 'employed') {
-    score += 20;
-    details.push('Employed status (+20)');
+    score += 25;
+    details.push('Employed status (+25)');
   } else if (borrower.employment_status === 'self_employed') {
-    score += 15;
-    details.push('Self-employed status (+15)');
+    score += 20;
+    details.push('Self-employed status (+20)');
   } else if (borrower.employment_status === 'retired') {
-    score += 10;
-    details.push('Retired status (+10)');
+    score += 15;
+    details.push('Retired status (+15)');
+  } else if (borrower.employment_status === 'unemployed') {
+    score += 0;
+    details.push('Unemployed status (0)');
   } else {
-    details.push('Employment status not favorable (0)');
+    score += 10;
+    details.push('Employment status not specified (+10 baseline)');
   }
 
-  if (borrower.years_employed !== null) {
+  if (borrower.years_employed !== null && borrower.years_employed !== undefined) {
     if (borrower.years_employed >= 5) {
       score += 20;
       details.push('5+ years employment (+20)');
@@ -128,22 +132,31 @@ export function calculateIncomeStabilityScore(borrower: BorrowerProfile): { scor
       score += 5;
       details.push('Less than 1 year employment (+5)');
     }
+  } else {
+    score += 8;
+    details.push('Employment duration not specified (+8 baseline)');
   }
 
-  if (borrower.monthly_income_php !== null) {
+  if (borrower.monthly_income_php !== null && borrower.monthly_income_php !== undefined) {
     if (borrower.monthly_income_php >= 100000) {
-      score += 10;
-      details.push('High income bracket (+10)');
+      score += 15;
+      details.push('High income bracket (+15)');
     } else if (borrower.monthly_income_php >= 50000) {
-      score += 8;
-      details.push('Upper-middle income (+8)');
+      score += 12;
+      details.push('Upper-middle income (+12)');
     } else if (borrower.monthly_income_php >= 25000) {
-      score += 5;
-      details.push('Middle income (+5)');
+      score += 10;
+      details.push('Middle income (+10)');
+    } else if (borrower.monthly_income_php >= 10000) {
+      score += 6;
+      details.push('Lower-middle income (+6)');
     } else {
-      score += 2;
-      details.push('Lower income bracket (+2)');
+      score += 3;
+      details.push('Lower income bracket (+3)');
     }
+  } else {
+    score += 5;
+    details.push('Income not specified (+5 baseline)');
   }
 
   return { score: Math.min(100, Math.max(0, score)), details };
@@ -195,8 +208,8 @@ export function calculateCreditHistoryScore(
 
   if (!creditHistory || creditHistory.total_loans === 0) {
     details.push('No previous credit history with this lender');
-    details.push('New borrower - baseline score applied');
-    return { score: 60, details };
+    details.push('New borrower - neutral baseline score applied');
+    return { score: 70, details };
   }
 
   let score = 50;
@@ -268,8 +281,8 @@ export function calculateLoanRiskScore(
       details.push('High LTV ratio - collateral may not fully cover loan');
     }
   } else {
-    details.push('No collateral provided - higher risk');
-    score -= 10;
+    details.push('No collateral provided - unsecured loan');
+    score -= 5;
   }
 
   if (borrower.monthly_income_php) {
@@ -317,8 +330,8 @@ export function calculateFinalScore(
     creditHistoryScore * config.credit_history_weight +
     loanRiskScore * config.loan_risk_weight;
 
-  const rawScore = weightedSum * 5.5;
-  const scaledScore = config.min_score + (rawScore / 550) * (config.max_score - config.min_score);
+  const scoreRange = config.max_score - config.min_score;
+  const scaledScore = config.min_score + (weightedSum / 100) * scoreRange;
 
   return Math.round(Math.min(config.max_score, Math.max(config.min_score, scaledScore)));
 }

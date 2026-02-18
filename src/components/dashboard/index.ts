@@ -4,3 +4,5 @@ export { LendingSettings } from './LendingSettings';
 export { NotificationPanel } from './NotificationPanel';
 export { BorrowerManagement } from './BorrowerManagement';
 export { NotificationTemplates } from './NotificationTemplates';
+export { ManualPaymentForm } from './ManualPaymentForm';
+export { CompanyProfile } from './CompanyProfile';

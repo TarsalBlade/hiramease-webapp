@@ -23,8 +23,10 @@ import {
   TrendingUp,
   TrendingDown,
   Bell,
+  DollarSign,
+  Building2,
 } from 'lucide-react';
-import { DashboardLayout, SubscriptionBilling, LendingSettings, BorrowerManagement, NotificationTemplates } from '../../components/dashboard';
+import { DashboardLayout, SubscriptionBilling, LendingSettings, BorrowerManagement, NotificationTemplates, ManualPaymentForm, CompanyProfile } from '../../components/dashboard';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import type { CreditApplication, BorrowerProfile, UserProfile, Document, AIScoringResult, ScoringConfiguration, BorrowerCreditHistory, FactorExplanation } from '../../types/database';
@@ -37,12 +39,13 @@ import {
   logDecisionAudit,
 } from '../../services/creditScoringEngine';
 
-type TabType = 'applications' | 'borrowers' | 'scoring' | 'lending_settings' | 'notifications' | 'billing';
+type TabType = 'applications' | 'borrowers' | 'scoring' | 'lending_settings' | 'payments' | 'notifications' | 'company' | 'billing';
 
 interface ApplicationWithDetails extends CreditApplication {
   borrower?: BorrowerProfile & { user?: UserProfile };
   documents?: Document[];
   ai_scoring?: AIScoringResult;
+  is_read_by_admin?: boolean;
 }
 
 export function LendingAdminDashboard() {
@@ -55,12 +58,16 @@ export function LendingAdminDashboard() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedApplication, setSelectedApplication] = useState<ApplicationWithDetails | null>(null);
 
+  const unreadCount = applications.filter((a) => !a.is_read_by_admin && ['submitted', 'under_review', 'verified'].includes(a.status)).length;
+
   const navItems = [
-    { icon: <FileText className="w-5 h-5" />, label: 'Applications', href: 'applications' },
+    { icon: <FileText className="w-5 h-5" />, label: 'Applications', href: 'applications', badge: unreadCount > 0 ? unreadCount : undefined },
     { icon: <Users className="w-5 h-5" />, label: 'Borrowers', href: 'borrowers' },
+    { icon: <DollarSign className="w-5 h-5" />, label: 'Payments', href: 'payments' },
     { icon: <Settings className="w-5 h-5" />, label: 'Lending Settings', href: 'lending_settings' },
     { icon: <Sliders className="w-5 h-5" />, label: 'Credit Scoring', href: 'scoring' },
     { icon: <Bell className="w-5 h-5" />, label: 'Notifications', href: 'notifications' },
+    { icon: <Building2 className="w-5 h-5" />, label: 'Company Profile', href: 'company' },
     { icon: <CreditCard className="w-5 h-5" />, label: 'Billing', href: 'billing' },
   ];
 
@@ -274,6 +281,16 @@ export function LendingAdminDashboard() {
     setSelectedApplication(null);
   }
 
+  async function markAsRead(applicationId: string) {
+    await supabase
+      .from('credit_applications')
+      .update({ is_read_by_admin: true })
+      .eq('id', applicationId);
+    setApplications((prev) =>
+      prev.map((a) => (a.id === applicationId ? { ...a, is_read_by_admin: true } : a))
+    );
+  }
+
   async function handleUpdateScoringConfig(updates: Partial<ScoringConfiguration>) {
     if (!profile?.tenant_id) return;
     try {
@@ -284,14 +301,21 @@ export function LendingAdminDashboard() {
     }
   }
 
-  const filteredApplications = applications.filter((app) => {
-    const matchesSearch =
-      app.application_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      app.borrower?.user?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      app.borrower?.user?.last_name?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredApplications = applications
+    .filter((app) => {
+      const matchesSearch =
+        app.application_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        app.borrower?.user?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        app.borrower?.user?.last_name?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      const aUnread = !a.is_read_by_admin ? 1 : 0;
+      const bUnread = !b.is_read_by_admin ? 1 : 0;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
 
   const stats = {
     total: applications.length,
@@ -303,9 +327,11 @@ export function LendingAdminDashboard() {
   const titles: Record<TabType, string> = {
     applications: 'Credit Applications',
     borrowers: 'Borrower Management',
+    payments: 'Payment Management',
     scoring: 'Credit Scoring',
     lending_settings: 'Lending Settings',
     notifications: 'Notification Templates',
+    company: 'Company Profile',
     billing: 'Subscription & Billing',
   };
 
@@ -371,10 +397,17 @@ export function LendingAdminDashboard() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {filteredApplications.map((app) => (
-                      <tr key={app.id} className="hover:bg-gray-50">
+                      <tr key={app.id} className={`hover:bg-gray-50 ${!app.is_read_by_admin ? 'bg-blue-50/40' : ''}`}>
                         <td className="px-6 py-4">
-                          <p className="font-medium text-gray-900">{app.application_number}</p>
-                          <p className="text-sm text-gray-500">{new Date(app.created_at).toLocaleDateString()}</p>
+                          <div className="flex items-center gap-2">
+                            {!app.is_read_by_admin && (
+                              <span className="w-2.5 h-2.5 bg-red-500 rounded-full flex-shrink-0" />
+                            )}
+                            <div>
+                              <p className={`font-medium text-gray-900 ${!app.is_read_by_admin ? 'font-bold' : ''}`}>{app.application_number}</p>
+                              <p className="text-sm text-gray-500">{new Date(app.created_at).toLocaleDateString()}</p>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <p className="text-gray-900">{app.borrower?.user?.first_name} {app.borrower?.user?.last_name}</p>
@@ -390,7 +423,13 @@ export function LendingAdminDashboard() {
                           <StatusBadge status={app.status} />
                         </td>
                         <td className="px-6 py-4">
-                          <button onClick={() => setSelectedApplication(app)} className="flex items-center gap-1 text-primary-600 hover:text-primary-700 font-medium text-sm">
+                          <button
+                            onClick={() => {
+                              if (!app.is_read_by_admin) markAsRead(app.id);
+                              setSelectedApplication(app);
+                            }}
+                            className="flex items-center gap-1 text-primary-600 hover:text-primary-700 font-medium text-sm"
+                          >
                             <Eye className="w-4 h-4" />View
                           </button>
                         </td>
@@ -412,12 +451,20 @@ export function LendingAdminDashboard() {
         <ScoringConfigPanel config={scoringConfig} onUpdate={handleUpdateScoringConfig} />
       )}
 
+      {activeTab === 'payments' && profile?.tenant_id && (
+        <ManualPaymentForm tenantId={profile.tenant_id} />
+      )}
+
       {activeTab === 'lending_settings' && (
         <LendingSettings />
       )}
 
       {activeTab === 'notifications' && profile?.tenant_id && (
         <NotificationTemplates tenantId={profile.tenant_id} />
+      )}
+
+      {activeTab === 'company' && profile?.tenant_id && (
+        <CompanyProfile tenantId={profile.tenant_id} />
       )}
 
       {activeTab === 'billing' && (

@@ -235,7 +235,7 @@ export interface AuditLog {
   created_at: string;
 }
 
-export type InterestType = 'diminishing_balance' | 'flat' | 'add_on';
+export type InterestType = 'diminishing_balance' | 'flat' | 'add_on' | 'straight_line' | 'compound';
 export type NotificationType = 'application_update' | 'payment' | 'document' | 'system';
 
 export interface TenantLendingSettings {

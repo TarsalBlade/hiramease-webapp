@@ -8,6 +8,7 @@ interface NavItem {
   label: string;
   href: string;
   active?: boolean;
+  badge?: number;
 }
 
 interface DashboardLayoutProps {
@@ -52,7 +53,12 @@ export function DashboardLayout({ children, navItems, activeNav, onNavChange, ti
               }`}
             >
               {item.icon}
-              <span className="font-medium">{item.label}</span>
+              <span className="font-medium flex-1">{item.label}</span>
+              {item.badge && item.badge > 0 && (
+                <span className="ml-auto w-5 h-5 flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full">
+                  {item.badge > 9 ? '9+' : item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>

@@ -75,6 +75,44 @@ export function calculateLoan(
         balance,
       });
     }
+  } else if (interestType === 'straight_line') {
+    const principalPart = principal / termMonths;
+    totalInterest = 0;
+    let balance = principal;
+    for (let m = 1; m <= termMonths; m++) {
+      const interestPart = balance * monthlyRate;
+      totalInterest += interestPart;
+      balance = Math.max(0, balance - principalPart);
+      schedule.push({
+        month: m,
+        payment: principalPart + interestPart,
+        principal: principalPart,
+        interest: interestPart,
+        balance,
+      });
+    }
+    monthlyPayment = schedule.length > 0 ? schedule[0].payment : principal / termMonths;
+  } else if (interestType === 'compound') {
+    if (monthlyRate === 0) {
+      monthlyPayment = principal / termMonths;
+      totalInterest = 0;
+    } else {
+      const compoundedTotal = principal * Math.pow(1 + monthlyRate, termMonths);
+      monthlyPayment = compoundedTotal / termMonths;
+      totalInterest = compoundedTotal - principal;
+    }
+
+    let balance = principal * Math.pow(1 + monthlyRate, termMonths);
+    for (let m = 1; m <= termMonths; m++) {
+      balance = Math.max(0, balance - monthlyPayment);
+      schedule.push({
+        month: m,
+        payment: monthlyPayment,
+        principal: monthlyPayment - (totalInterest / termMonths),
+        interest: totalInterest / termMonths,
+        balance,
+      });
+    }
   } else {
     totalInterest = principal * (annualRate / 100) * (termMonths / 12);
     monthlyPayment = (principal + totalInterest) / termMonths;

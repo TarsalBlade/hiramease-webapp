@@ -33,14 +33,23 @@ interface ApplicationWithDetails extends CreditApplication {
   ai_scoring?: AIScoringResult;
 }
 
+interface TenantInfo {
+  id: string;
+  company_name: string;
+  logo_url: string | null;
+  description: string | null;
+}
+
 export function BorrowerDashboard() {
   const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('applications');
   const [applications, setApplications] = useState<ApplicationWithDetails[]>([]);
   const [borrowerProfile, setBorrowerProfile] = useState<BorrowerProfile | null>(null);
+  const [currentTenant, setCurrentTenant] = useState<TenantInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showNewApplicationModal, setShowNewApplicationModal] = useState(false);
   const [showSelectTenantModal, setShowSelectTenantModal] = useState(false);
+  const [showSwitchCompany, setShowSwitchCompany] = useState(false);
 
   const navItems = [
     { icon: <FileText className="w-5 h-5" />, label: 'My Applications', href: 'applications' },
@@ -52,39 +61,58 @@ export function BorrowerDashboard() {
     if (user?.id) {
       fetchData();
     }
-  }, [user?.id]);
+  }, [user?.id, activeTenantId]);
+
+  const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
 
   async function fetchData() {
     setLoading(true);
 
-    const { data: borrower } = await supabase
+    let borrowerQuery = supabase
       .from('borrower_profiles')
       .select('*')
-      .eq('user_id', user?.id)
-      .maybeSingle();
+      .eq('user_id', user?.id);
+
+    if (activeTenantId) {
+      borrowerQuery = borrowerQuery.eq('tenant_id', activeTenantId);
+    }
+
+    const { data: borrowerRows } = await borrowerQuery.order('created_at', { ascending: false }).limit(1);
+    const borrower = borrowerRows?.[0] || null;
 
     setBorrowerProfile(borrower);
 
     if (borrower) {
-      const { data: apps } = await supabase
-        .from('credit_applications')
-        .select(`
-          *,
-          documents(*),
-          decision:application_decisions(*),
-          ai_scoring:ai_scoring_results(*)
-        `)
-        .eq('borrower_id', borrower.id)
-        .order('created_at', { ascending: false });
+      const [appsResult, tenantResult] = await Promise.all([
+        supabase
+          .from('credit_applications')
+          .select(`
+            *,
+            documents(*),
+            decision:application_decisions(*),
+            ai_scoring:ai_scoring_results(*)
+          `)
+          .eq('borrower_id', borrower.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('tenants')
+          .select('id, company_name, logo_url, description')
+          .eq('id', borrower.tenant_id)
+          .maybeSingle(),
+      ]);
 
-      if (apps) {
+      if (appsResult.data) {
         setApplications(
-          apps.map((app) => ({
+          appsResult.data.map((app) => ({
             ...app,
             decision: Array.isArray(app.decision) ? app.decision[0] : app.decision,
             ai_scoring: Array.isArray(app.ai_scoring) ? app.ai_scoring[0] : app.ai_scoring,
           }))
         );
+      }
+
+      if (tenantResult.data) {
+        setCurrentTenant(tenantResult.data as TenantInfo);
       }
     }
 
@@ -121,6 +149,30 @@ export function BorrowerDashboard() {
     >
       {activeTab === 'applications' && (
         <div className="space-y-6">
+          {currentTenant && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {currentTenant.logo_url ? (
+                    <img src={currentTenant.logo_url} alt={currentTenant.company_name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Building2 className="w-5 h-5 text-gray-400" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Currently with</p>
+                  <p className="font-semibold text-gray-900">{currentTenant.company_name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSwitchCompany(true)}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Switch Company
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div className="flex gap-4">
               <StatCard icon={<FileText className="w-5 h-5" />} label="Total" value={stats.total} color="bg-primary-100 text-primary-600" />
@@ -182,6 +234,18 @@ export function BorrowerDashboard() {
           onComplete={() => {
             setShowNewApplicationModal(false);
             fetchData();
+          }}
+        />
+      )}
+
+      {showSwitchCompany && (
+        <SwitchCompanyModal
+          userId={user?.id || ''}
+          currentTenantId={borrowerProfile?.tenant_id}
+          onClose={() => setShowSwitchCompany(false)}
+          onComplete={(newTenantId: string) => {
+            setActiveTenantId(newTenantId);
+            setShowSwitchCompany(false);
           }}
         />
       )}
@@ -457,23 +521,36 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; borrowerProfile: BorrowerProfile | null; onUpdate: () => void }) {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [form, setForm] = useState({
-    email: profile?.email || '',
-    phone: profile?.phone || '',
-    date_of_birth: borrowerProfile?.date_of_birth || '',
-    gender: borrowerProfile?.gender || '',
-    civil_status: borrowerProfile?.civil_status || '',
-    address: borrowerProfile?.address || '',
-    city: borrowerProfile?.city || '',
-    province: borrowerProfile?.province || '',
-    employment_status: borrowerProfile?.employment_status || '',
-    employer_name: borrowerProfile?.employer_name || '',
-    monthly_income_php: borrowerProfile?.monthly_income_php?.toString() || '',
-  });
+  const [form, setForm] = useState(buildFormState());
+
+  function buildFormState() {
+    return {
+      email: profile?.email || '',
+      phone: profile?.phone || '',
+      date_of_birth: borrowerProfile?.date_of_birth || '',
+      gender: borrowerProfile?.gender || '',
+      civil_status: borrowerProfile?.civil_status || '',
+      address: borrowerProfile?.address || '',
+      city: borrowerProfile?.city || '',
+      province: borrowerProfile?.province || '',
+      employment_status: borrowerProfile?.employment_status || '',
+      employer_name: borrowerProfile?.employer_name || '',
+      monthly_income_php: borrowerProfile?.monthly_income_php?.toString() || '',
+      years_employed: borrowerProfile?.years_employed?.toString() || '',
+    };
+  }
+
+  function startEditing() {
+    setForm(buildFormState());
+    setErrors({});
+    setSaveSuccess(false);
+    setEditing(true);
+  }
 
   function validateForm() {
     const newErrors: Record<string, string> = {};
@@ -486,8 +563,8 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
 
     if (!form.phone.trim()) {
       newErrors.phone = 'Phone number is required';
-    } else if (!/^(\+63|0)[0-9]{10}$/.test(form.phone.replace(/\s+/g, ''))) {
-      newErrors.phone = 'Invalid Philippine phone number';
+    } else if (!/^(\+63|0)[0-9]{10}$/.test(form.phone.replace(/[\s-]/g, ''))) {
+      newErrors.phone = 'Use format: +639XXXXXXXXX or 09XXXXXXXXX';
     }
 
     setErrors(newErrors);
@@ -500,6 +577,7 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
     if (!validateForm()) return;
 
     setSaving(true);
+    setSaveSuccess(false);
 
     const { error: profileError } = await supabase
       .from('user_profiles')
@@ -508,7 +586,7 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
         phone: form.phone,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', profile.id);
+      .eq('id', user.id);
 
     const { error: borrowerError } = await supabase
       .from('borrower_profiles')
@@ -522,6 +600,7 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
         employment_status: form.employment_status || null,
         employer_name: form.employer_name || null,
         monthly_income_php: form.monthly_income_php ? parseFloat(form.monthly_income_php) : null,
+        years_employed: form.years_employed ? parseInt(form.years_employed) : null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', borrowerProfile.id);
@@ -530,6 +609,9 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
       alert('Failed to update profile. Please try again.');
     } else {
       setEditing(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      await refreshProfile();
       onUpdate();
     }
 
@@ -542,11 +624,18 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-gray-900">Personal Information</h3>
           {borrowerProfile && !editing && (
-            <button onClick={() => setEditing(true)} className="text-primary-600 hover:text-primary-700 font-medium text-sm">
+            <button onClick={startEditing} className="text-primary-600 hover:text-primary-700 font-medium text-sm">
               Edit
             </button>
           )}
         </div>
+
+        {saveSuccess && (
+          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-green-600" />
+            <p className="text-green-700 font-medium">Profile updated successfully!</p>
+          </div>
+        )}
 
         {!borrowerProfile ? (
           <div className="text-center py-8">
@@ -642,6 +731,10 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
                 <input type="text" value={form.employer_name} onChange={(e) => setForm({ ...form, employer_name: e.target.value })} className="input-field" />
               </div>
               <div>
+                <label className="label">Years Employed</label>
+                <input type="number" value={form.years_employed} onChange={(e) => setForm({ ...form, years_employed: e.target.value })} className="input-field" min="0" placeholder="e.g., 3" />
+              </div>
+              <div>
                 <label className="label">Monthly Income (PHP)</label>
                 <input type="number" value={form.monthly_income_php} onChange={(e) => setForm({ ...form, monthly_income_php: e.target.value })} className="input-field" />
               </div>
@@ -665,6 +758,7 @@ function ProfileSection({ profile, borrowerProfile, onUpdate }: { profile: any; 
             <ProfileField label="Address" value={borrowerProfile.address || 'Not set'} />
             <ProfileField label="City/Province" value={`${borrowerProfile.city || ''}, ${borrowerProfile.province || ''}`.trim() || 'Not set'} />
             <ProfileField label="Employment" value={borrowerProfile.employment_status || 'Not set'} />
+            <ProfileField label="Years Employed" value={borrowerProfile.years_employed?.toString() || 'Not set'} />
             <ProfileField label="Monthly Income" value={borrowerProfile.monthly_income_php ? `PHP ${borrowerProfile.monthly_income_php.toLocaleString()}` : 'Not set'} />
           </div>
         )}
@@ -687,6 +781,8 @@ interface TenantWithSettings {
   company_name: string;
   registration_type: string;
   registration_number: string;
+  logo_url?: string | null;
+  description?: string | null;
   lending_settings?: TenantLendingSettings;
 }
 
@@ -702,7 +798,7 @@ function SelectTenantModal({ userId, onClose, onComplete }: { userId: string; on
 
   async function fetchTenants() {
     const [tenantsRes, settingsRes] = await Promise.all([
-      supabase.from('tenants').select('id, company_name, registration_type, registration_number').eq('status', 'active'),
+      supabase.from('tenants').select('id, company_name, registration_type, registration_number, logo_url, description').eq('status', 'active'),
       supabase.from('tenant_lending_settings').select('*'),
     ]);
 
@@ -734,15 +830,6 @@ function SelectTenantModal({ userId, onClose, onComplete }: { userId: string; on
     onComplete();
   }
 
-  const formatInterestType = (type: string) => {
-    const map: Record<string, string> = {
-      diminishing_balance: 'Diminishing Balance',
-      flat: 'Flat Rate',
-      add_on: 'Add-On',
-    };
-    return map[type] || type;
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
@@ -762,47 +849,14 @@ function SelectTenantModal({ userId, onClose, onComplete }: { userId: string; on
             <p className="text-center text-gray-500 py-8">No lending companies available</p>
           ) : (
             <div className="space-y-3 max-h-[400px] overflow-y-auto">
-              {tenants.map((tenant) => {
-                const s = tenant.lending_settings;
-                return (
-                  <button
-                    key={tenant.id}
-                    onClick={() => setSelectedTenant(tenant.id)}
-                    className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
-                      selectedTenant === tenant.id ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-blue-200'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4 text-gray-400" />
-                          <p className="font-semibold text-gray-900">{tenant.company_name}</p>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-0.5 ml-6">{tenant.registration_type} - {tenant.registration_number}</p>
-                      </div>
-                      {selectedTenant === tenant.id && (
-                        <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0" />
-                      )}
-                    </div>
-                    {s && (
-                      <div className="mt-3 ml-6 grid grid-cols-3 gap-2">
-                        <div className="bg-white/80 rounded-lg px-2.5 py-1.5">
-                          <p className="text-xs text-gray-500">Interest</p>
-                          <p className="text-sm font-semibold text-gray-900">{s.interest_rate_annual_percent}%/yr</p>
-                        </div>
-                        <div className="bg-white/80 rounded-lg px-2.5 py-1.5">
-                          <p className="text-xs text-gray-500">Type</p>
-                          <p className="text-sm font-semibold text-gray-900">{formatInterestType(s.interest_type).split(' ')[0]}</p>
-                        </div>
-                        <div className="bg-white/80 rounded-lg px-2.5 py-1.5">
-                          <p className="text-xs text-gray-500">Loan Range</p>
-                          <p className="text-sm font-semibold text-gray-900">{(s.min_loan_amount_php / 1000).toFixed(0)}K - {(s.max_loan_amount_php / 1000).toFixed(0)}K</p>
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
+              {tenants.map((tenant) => (
+                <TenantCard
+                  key={tenant.id}
+                  tenant={tenant}
+                  selected={selectedTenant === tenant.id}
+                  onSelect={() => setSelectedTenant(tenant.id)}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -815,6 +869,168 @@ function SelectTenantModal({ userId, onClose, onComplete }: { userId: string; on
         </div>
       </div>
     </div>
+  );
+}
+
+function SwitchCompanyModal({ userId, currentTenantId, onClose, onComplete }: { userId: string; currentTenantId?: string; onClose: () => void; onComplete: (tenantId: string) => void }) {
+  const [tenants, setTenants] = useState<TenantWithSettings[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTenant, setSelectedTenant] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetchTenants();
+  }, []);
+
+  async function fetchTenants() {
+    const [tenantsRes, settingsRes] = await Promise.all([
+      supabase.from('tenants').select('id, company_name, registration_type, registration_number, logo_url, description').eq('status', 'active'),
+      supabase.from('tenant_lending_settings').select('*'),
+    ]);
+
+    const settingsMap = new Map<string, TenantLendingSettings>();
+    if (settingsRes.data) {
+      for (const s of settingsRes.data) {
+        settingsMap.set(s.tenant_id, s as TenantLendingSettings);
+      }
+    }
+
+    const combined = (tenantsRes.data || []).map((t) => ({
+      ...t,
+      lending_settings: settingsMap.get(t.id),
+    }));
+
+    setTenants(combined.filter((t) => t.id !== currentTenantId));
+    setLoading(false);
+  }
+
+  async function handleSwitch() {
+    if (!selectedTenant) return;
+    setSubmitting(true);
+
+    const { data: existing } = await supabase
+      .from('borrower_profiles')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('tenant_id', selectedTenant)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabase.from('borrower_profiles').insert({
+        user_id: userId,
+        tenant_id: selectedTenant,
+      });
+    }
+
+    onComplete(selectedTenant);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900">Switch Lending Company</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-6">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+              <p className="text-sm text-yellow-700">Switching companies will create a new borrower profile with the selected company. Your existing applications with the current company will remain.</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <LoadingState />
+          ) : tenants.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No other lending companies available</p>
+          ) : (
+            <div className="space-y-3 max-h-[350px] overflow-y-auto">
+              {tenants.map((tenant) => (
+                <TenantCard
+                  key={tenant.id}
+                  tenant={tenant}
+                  selected={selectedTenant === tenant.id}
+                  onSelect={() => setSelectedTenant(tenant.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+          <button onClick={onClose} className="btn-outline">Cancel</button>
+          <button onClick={handleSwitch} disabled={!selectedTenant || submitting} className="btn-primary disabled:opacity-50">
+            {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Switch Company'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TenantCard({ tenant, selected, onSelect }: { tenant: TenantWithSettings; selected: boolean; onSelect: () => void }) {
+  const s = tenant.lending_settings;
+
+  const formatInterestType = (type: string) => {
+    const map: Record<string, string> = {
+      diminishing_balance: 'Diminishing',
+      flat: 'Flat',
+      add_on: 'Add-On',
+      straight_line: 'Straight Line',
+      compound: 'Compound',
+    };
+    return map[type] || type;
+  };
+
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+        selected ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-blue-200'
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+            {tenant.logo_url ? (
+              <img src={tenant.logo_url} alt={tenant.company_name} className="w-full h-full object-cover" />
+            ) : (
+              <Building2 className="w-5 h-5 text-gray-400" />
+            )}
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900">{tenant.company_name}</p>
+            <p className="text-xs text-gray-500">{tenant.registration_type} - {tenant.registration_number}</p>
+            {tenant.description && (
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2">{tenant.description}</p>
+            )}
+          </div>
+        </div>
+        {selected && (
+          <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0" />
+        )}
+      </div>
+      {s && (
+        <div className="mt-3 ml-13 grid grid-cols-3 gap-2">
+          <div className="bg-white/80 rounded-lg px-2.5 py-1.5">
+            <p className="text-xs text-gray-500">Interest</p>
+            <p className="text-sm font-semibold text-gray-900">{s.interest_rate_annual_percent}%/yr</p>
+          </div>
+          <div className="bg-white/80 rounded-lg px-2.5 py-1.5">
+            <p className="text-xs text-gray-500">Type</p>
+            <p className="text-sm font-semibold text-gray-900">{formatInterestType(s.interest_type)}</p>
+          </div>
+          <div className="bg-white/80 rounded-lg px-2.5 py-1.5">
+            <p className="text-xs text-gray-500">Loan Range</p>
+            <p className="text-sm font-semibold text-gray-900">{(s.min_loan_amount_php / 1000).toFixed(0)}K - {(s.max_loan_amount_php / 1000).toFixed(0)}K</p>
+          </div>
+        </div>
+      )}
+    </button>
   );
 }
 
@@ -879,6 +1095,8 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
       diminishing_balance: 'Diminishing Balance',
       flat: 'Flat Rate',
       add_on: 'Add-On',
+      straight_line: 'Straight Line',
+      compound: 'Compound Interest',
     };
     return map[type] || type;
   };

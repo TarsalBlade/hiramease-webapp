@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
@@ -42,6 +42,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const authHeader = req.headers.get("Authorization");
+    const apikeyHeader = req.headers.get("Apikey") || req.headers.get("apikey");
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
@@ -52,8 +53,13 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const globalHeaders: Record<string, string> = { Authorization: authHeader };
+    if (apikeyHeader) {
+      globalHeaders["Apikey"] = apikeyHeader;
+    }
+
     const authClient = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: globalHeaders },
     });
 
     const {
@@ -79,6 +85,16 @@ Deno.serve(async (req: Request) => {
     if (!amount || !planId || !tenantId) {
       return new Response(
         JSON.stringify({ error: "Missing required payment information." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (amount < 10000) {
+      return new Response(
+        JSON.stringify({ error: "Minimum payment amount is PHP 100.00" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },

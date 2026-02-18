@@ -174,6 +174,8 @@ export function LendingSettings() {
                   <option value="diminishing_balance">Diminishing Balance</option>
                   <option value="flat">Flat Rate</option>
                   <option value="add_on">Add-On</option>
+                  <option value="straight_line">Straight Line</option>
+                  <option value="compound">Compound Interest</option>
                 </select>
               </div>
             </div>
@@ -190,6 +192,12 @@ export function LendingSettings() {
                   )}
                   {form.interest_type === 'add_on' && (
                     <p><strong>Add-On:</strong> Total interest is computed upfront and added to the principal. The sum is divided equally across the term.</p>
+                  )}
+                  {form.interest_type === 'straight_line' && (
+                    <p><strong>Straight Line:</strong> Equal principal payments each period with interest calculated on the remaining balance. Monthly payments decrease over time.</p>
+                  )}
+                  {form.interest_type === 'compound' && (
+                    <p><strong>Compound Interest:</strong> Interest is calculated on both the principal and previously accumulated interest. Results in higher total interest over longer terms.</p>
                   )}
                 </div>
               </div>
@@ -357,6 +365,8 @@ function formatInterestType(type: string) {
     diminishing_balance: 'Diminishing Balance',
     flat: 'Flat Rate',
     add_on: 'Add-On',
+    straight_line: 'Straight Line',
+    compound: 'Compound Interest',
   };
   return map[type] || type;
 }

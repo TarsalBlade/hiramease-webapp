@@ -3,7 +3,6 @@ import {
   Search,
   Users,
   TrendingUp,
-  TrendingDown,
   CheckCircle,
   XCircle,
   AlertTriangle,
@@ -11,9 +10,10 @@ import {
   X,
   Clock,
   DollarSign,
+  Filter,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import type { BorrowerProfile, UserProfile, Loan, LoanPayment } from '../../types/database';
+import type { BorrowerProfile, UserProfile, Loan } from '../../types/database';
 
 interface BorrowerWithStats extends BorrowerProfile {
   user?: UserProfile;
@@ -25,6 +25,8 @@ interface BorrowerWithStats extends BorrowerProfile {
   late_payments: number;
   missed_payments: number;
   credit_rating: string;
+  application_count: number;
+  latest_status: string;
 }
 
 interface BorrowerManagementProps {
@@ -35,6 +37,7 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
   const [borrowers, setBorrowers] = useState<BorrowerWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [selectedBorrower, setSelectedBorrower] = useState<BorrowerWithStats | null>(null);
 
   useEffect(() => {
@@ -54,64 +57,111 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
       `)
       .eq('tenant_id', tenantId);
 
-    if (borrowersData) {
-      const enrichedBorrowers = await Promise.all(
-        borrowersData.map(async (borrower) => {
-          const { data: loans } = await supabase
-            .from('loans')
-            .select('*')
-            .eq('borrower_id', borrower.id);
-
-          const { data: payments } = await supabase
-            .from('loan_payments')
-            .select('*')
-            .eq('borrower_id', borrower.id);
-
-          const totalLoans = loans?.length || 0;
-          const activeLoans = loans?.filter((l) => l.status === 'active').length || 0;
-          const totalBorrowed = loans?.reduce((sum, l) => sum + Number(l.principal_amount_php), 0) || 0;
-          const totalPaid = payments?.reduce((sum, p) => sum + Number(p.amount_paid_php), 0) || 0;
-
-          const onTimePayments = payments?.filter((p) => p.status === 'paid' && p.days_late === 0).length || 0;
-          const latePayments = payments?.filter((p) => p.status === 'late' || (p.status === 'paid' && p.days_late > 0)).length || 0;
-          const missedPayments = payments?.filter((p) => p.status === 'missed').length || 0;
-
-          const totalPayments = payments?.length || 1;
-          const onTimeRate = (onTimePayments / totalPayments) * 100;
-          const creditRating = onTimeRate >= 90 ? 'Excellent' : onTimeRate >= 75 ? 'Good' : onTimeRate >= 50 ? 'Fair' : 'Poor';
-
-          return {
-            ...borrower,
-            total_loans: totalLoans,
-            active_loans: activeLoans,
-            total_borrowed: totalBorrowed,
-            total_paid: totalPaid,
-            on_time_payments: onTimePayments,
-            late_payments: latePayments,
-            missed_payments: missedPayments,
-            credit_rating: creditRating,
-          };
-        })
-      );
-
-      setBorrowers(enrichedBorrowers as BorrowerWithStats[]);
+    if (!borrowersData) {
+      setLoading(false);
+      return;
     }
 
+    const borrowerIds = borrowersData.map((b) => b.id);
+
+    const [loansResult, paymentsResult, appsResult] = await Promise.all([
+      borrowerIds.length > 0
+        ? supabase.from('loans').select('*').in('borrower_id', borrowerIds)
+        : Promise.resolve({ data: [] }),
+      borrowerIds.length > 0
+        ? supabase.from('loan_payments').select('*').in('borrower_id', borrowerIds)
+        : Promise.resolve({ data: [] }),
+      borrowerIds.length > 0
+        ? supabase.from('credit_applications').select('id, borrower_id, status').in('borrower_id', borrowerIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const loansMap = new Map<string, any[]>();
+    const paymentsMap = new Map<string, any[]>();
+    const appsMap = new Map<string, any[]>();
+
+    for (const loan of (loansResult.data || [])) {
+      const list = loansMap.get(loan.borrower_id) || [];
+      list.push(loan);
+      loansMap.set(loan.borrower_id, list);
+    }
+
+    for (const payment of (paymentsResult.data || [])) {
+      const list = paymentsMap.get(payment.borrower_id) || [];
+      list.push(payment);
+      paymentsMap.set(payment.borrower_id, list);
+    }
+
+    for (const app of (appsResult.data || [])) {
+      const list = appsMap.get(app.borrower_id) || [];
+      list.push(app);
+      appsMap.set(app.borrower_id, list);
+    }
+
+    const enriched: BorrowerWithStats[] = borrowersData.map((borrower) => {
+      const loans = loansMap.get(borrower.id) || [];
+      const payments = paymentsMap.get(borrower.id) || [];
+      const apps = appsMap.get(borrower.id) || [];
+
+      const totalLoans = loans.length;
+      const activeLoans = loans.filter((l: any) => l.status === 'active').length;
+      const totalBorrowed = loans.reduce((sum: number, l: any) => sum + Number(l.principal_amount_php), 0);
+      const totalPaid = payments.reduce((sum: number, p: any) => sum + Number(p.amount_paid_php), 0);
+
+      const onTimePayments = payments.filter((p: any) => p.status === 'paid' && p.days_late === 0).length;
+      const latePayments = payments.filter((p: any) => p.status === 'late' || (p.status === 'paid' && p.days_late > 0)).length;
+      const missedPayments = payments.filter((p: any) => p.status === 'missed').length;
+
+      const totalPaymentCount = payments.length || 1;
+      const onTimeRate = (onTimePayments / totalPaymentCount) * 100;
+      const creditRating = totalLoans === 0 ? 'New'
+        : onTimeRate >= 90 ? 'Excellent'
+        : onTimeRate >= 75 ? 'Good'
+        : onTimeRate >= 50 ? 'Fair'
+        : 'Poor';
+
+      const latestApp = apps.sort((a: any, b: any) => b.id.localeCompare(a.id))[0];
+
+      return {
+        ...borrower,
+        total_loans: totalLoans,
+        active_loans: activeLoans,
+        total_borrowed: totalBorrowed,
+        total_paid: totalPaid,
+        on_time_payments: onTimePayments,
+        late_payments: latePayments,
+        missed_payments: missedPayments,
+        credit_rating: creditRating,
+        application_count: apps.length,
+        latest_status: latestApp?.status || 'registered',
+      } as BorrowerWithStats;
+    });
+
+    setBorrowers(enriched);
     setLoading(false);
   }
 
   const filteredBorrowers = borrowers.filter((b) => {
     const fullName = `${b.user?.first_name || ''} ${b.user?.last_name || ''}`.toLowerCase();
     const email = (b.user?.email || '').toLowerCase();
+    const phone = (b.user?.phone || '').toLowerCase();
     const query = searchQuery.toLowerCase();
-    return fullName.includes(query) || email.includes(query);
+    const matchesSearch = fullName.includes(query) || email.includes(query) || phone.includes(query);
+
+    let matchesFilter = true;
+    if (statusFilter === 'active_loan') matchesFilter = b.active_loans > 0;
+    else if (statusFilter === 'no_loan') matchesFilter = b.total_loans === 0;
+    else if (statusFilter === 'excellent') matchesFilter = b.credit_rating === 'Excellent';
+    else if (statusFilter === 'at_risk') matchesFilter = b.credit_rating === 'Poor' || b.credit_rating === 'Fair';
+
+    return matchesSearch && matchesFilter;
   });
 
   const stats = {
     total: borrowers.length,
     active: borrowers.filter((b) => b.active_loans > 0).length,
-    excellent: borrowers.filter((b) => b.credit_rating === 'Excellent').length,
-    poor: borrowers.filter((b) => b.credit_rating === 'Poor' || b.credit_rating === 'Fair').length,
+    excellent: borrowers.filter((b) => b.credit_rating === 'Excellent' || b.credit_rating === 'Good').length,
+    atRisk: borrowers.filter((b) => b.credit_rating === 'Poor' || b.credit_rating === 'Fair').length,
   };
 
   return (
@@ -119,19 +169,35 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
       <div className="grid grid-cols-4 gap-4">
         <StatCard icon={<Users className="w-5 h-5" />} label="Total Borrowers" value={stats.total} color="bg-blue-100 text-blue-600" />
         <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Active Loans" value={stats.active} color="bg-green-100 text-green-600" />
-        <StatCard icon={<CheckCircle className="w-5 h-5" />} label="Excellent Credit" value={stats.excellent} color="bg-emerald-100 text-emerald-600" />
-        <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="At Risk" value={stats.poor} color="bg-red-100 text-red-600" />
+        <StatCard icon={<CheckCircle className="w-5 h-5" />} label="Good Standing" value={stats.excellent} color="bg-emerald-100 text-emerald-600" />
+        <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="At Risk" value={stats.atRisk} color="bg-red-100 text-red-600" />
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by name or email..."
-          className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name, email, or phone..."
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+        <div className="relative">
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+          >
+            <option value="all">All Borrowers</option>
+            <option value="active_loan">With Active Loans</option>
+            <option value="no_loan">No Loans Yet</option>
+            <option value="excellent">Good Standing</option>
+            <option value="at_risk">At Risk</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (
@@ -142,7 +208,7 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
       ) : filteredBorrowers.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-8 text-center">
           <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">No borrowers found</p>
+          <p className="text-gray-500">{searchQuery || statusFilter !== 'all' ? 'No matching borrowers found' : 'No borrowers registered yet'}</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -151,11 +217,11 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Borrower</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Credit Rating</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Loans</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Active Loans</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Credit</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Applications</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Loans</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Borrowed</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Payment History</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -166,12 +232,16 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
                       <div>
                         <p className="font-medium text-gray-900">{borrower.user?.first_name} {borrower.user?.last_name}</p>
                         <p className="text-sm text-gray-500">{borrower.user?.email}</p>
+                        {borrower.user?.phone && <p className="text-xs text-gray-400">{borrower.user.phone}</p>}
                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <ApplicationStatusBadge status={borrower.latest_status} />
                     </td>
                     <td className="px-6 py-4">
                       <CreditRatingBadge rating={borrower.credit_rating} />
                     </td>
-                    <td className="px-6 py-4 text-right text-sm text-gray-900">{borrower.total_loans}</td>
+                    <td className="px-6 py-4 text-right text-sm text-gray-900">{borrower.application_count}</td>
                     <td className="px-6 py-4 text-right">
                       {borrower.active_loans > 0 ? (
                         <span className="inline-flex items-center gap-1 text-sm font-medium text-green-600">
@@ -179,31 +249,11 @@ export function BorrowerManagement({ tenantId }: BorrowerManagementProps) {
                           {borrower.active_loans}
                         </span>
                       ) : (
-                        <span className="text-sm text-gray-400">0</span>
+                        <span className="text-sm text-gray-400">{borrower.total_loans}</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-medium text-gray-900">
-                      PHP {borrower.total_borrowed.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-3 text-xs">
-                        <div className="flex items-center gap-1 text-green-600">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          {borrower.on_time_payments}
-                        </div>
-                        {borrower.late_payments > 0 && (
-                          <div className="flex items-center gap-1 text-yellow-600">
-                            <Clock className="w-3.5 h-3.5" />
-                            {borrower.late_payments}
-                          </div>
-                        )}
-                        {borrower.missed_payments > 0 && (
-                          <div className="flex items-center gap-1 text-red-600">
-                            <XCircle className="w-3.5 h-3.5" />
-                            {borrower.missed_payments}
-                          </div>
-                        )}
-                      </div>
+                      {borrower.total_borrowed > 0 ? `PHP ${borrower.total_borrowed.toLocaleString()}` : '-'}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button
@@ -244,16 +294,35 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
 }
 
 function CreditRatingBadge({ rating }: { rating: string }) {
-  const colors = {
+  const colors: Record<string, string> = {
     Excellent: 'bg-green-100 text-green-700 border-green-200',
     Good: 'bg-blue-100 text-blue-700 border-blue-200',
     Fair: 'bg-yellow-100 text-yellow-700 border-yellow-200',
     Poor: 'bg-red-100 text-red-700 border-red-200',
+    New: 'bg-gray-100 text-gray-600 border-gray-200',
   };
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${colors[rating as keyof typeof colors] || colors.Fair}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${colors[rating] || colors.New}`}>
       {rating}
+    </span>
+  );
+}
+
+function ApplicationStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    registered: 'bg-gray-100 text-gray-600',
+    submitted: 'bg-blue-100 text-blue-700',
+    under_review: 'bg-yellow-100 text-yellow-700',
+    approved: 'bg-green-100 text-green-700',
+    rejected: 'bg-red-100 text-red-700',
+    scored: 'bg-sky-100 text-sky-700',
+    verified: 'bg-cyan-100 text-cyan-700',
+  };
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${colors[status] || colors.registered}`}>
+      {status.replace('_', ' ')}
     </span>
   );
 }
@@ -283,7 +352,7 @@ function BorrowerDetailModal({ borrower, onClose }: { borrower: BorrowerWithStat
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">{borrower.user?.first_name} {borrower.user?.last_name}</h2>
-            <p className="text-sm text-gray-500">{borrower.user?.email}</p>
+            <p className="text-sm text-gray-500">{borrower.user?.email} {borrower.user?.phone ? `| ${borrower.user.phone}` : ''}</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
             <X className="w-5 h-5 text-gray-500" />
@@ -300,9 +369,9 @@ function BorrowerDetailModal({ borrower, onClose }: { borrower: BorrowerWithStat
               <p className="text-sm text-green-600 font-medium mb-1">Total Borrowed</p>
               <p className="text-2xl font-bold text-green-900">PHP {borrower.total_borrowed.toLocaleString()}</p>
             </div>
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
-              <p className="text-sm text-purple-600 font-medium mb-1">Active Loans</p>
-              <p className="text-2xl font-bold text-purple-900">{borrower.active_loans}</p>
+            <div className="bg-gradient-to-br from-sky-50 to-sky-100 rounded-xl p-4 border border-sky-200">
+              <p className="text-sm text-sky-600 font-medium mb-1">Applications</p>
+              <p className="text-2xl font-bold text-sky-900">{borrower.application_count}</p>
             </div>
           </div>
 
@@ -313,8 +382,10 @@ function BorrowerDetailModal({ borrower, onClose }: { borrower: BorrowerWithStat
               <InfoRow label="Employment" value={borrower.employment_status || 'Not specified'} />
               <InfoRow label="Company" value={borrower.employer_name || 'Not specified'} />
               <InfoRow label="Job Title" value={borrower.job_title || 'Not specified'} />
+              <InfoRow label="Years Employed" value={borrower.years_employed?.toString() || 'Not specified'} />
               <InfoRow label="Monthly Income" value={borrower.monthly_income_php ? `PHP ${borrower.monthly_income_php.toLocaleString()}` : 'Not specified'} />
-              <InfoRow label="Address" value={`${borrower.city || ''}, ${borrower.province || ''}`.trim() || 'Not specified'} />
+              <InfoRow label="Address" value={`${borrower.address || ''} ${borrower.city || ''}, ${borrower.province || ''}`.trim() || 'Not specified'} />
+              <InfoRow label="Civil Status" value={borrower.civil_status || 'Not specified'} />
             </div>
           </div>
 
@@ -391,7 +462,7 @@ function BorrowerDetailModal({ borrower, onClose }: { borrower: BorrowerWithStat
 }
 
 function LoanStatusBadge({ status }: { status: string }) {
-  const colors = {
+  const colors: Record<string, string> = {
     active: 'bg-green-100 text-green-700 border-green-200',
     paid_off: 'bg-blue-100 text-blue-700 border-blue-200',
     defaulted: 'bg-red-100 text-red-700 border-red-200',
@@ -399,7 +470,7 @@ function LoanStatusBadge({ status }: { status: string }) {
   };
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${colors[status as keyof typeof colors] || colors.active}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${colors[status] || colors.active}`}>
       {status.replace('_', ' ').toUpperCase()}
     </span>
   );
