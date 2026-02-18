@@ -42,7 +42,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const authHeader = req.headers.get("Authorization");
-    const apikeyHeader = req.headers.get("Apikey") || req.headers.get("apikey");
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
@@ -53,19 +52,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const globalHeaders: Record<string, string> = { Authorization: authHeader };
-    if (apikeyHeader) {
-      globalHeaders["Apikey"] = apikeyHeader;
-    }
+    const token = authHeader.replace("Bearer ", "");
 
-    const authClient = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: globalHeaders },
-    });
+    const authClient = createClient(supabaseUrl, supabaseKey);
 
     const {
       data: { user },
       error: userError,
-    } = await authClient.auth.getUser();
+    } = await authClient.auth.getUser(token);
 
     if (userError || !user) {
       return new Response(
