@@ -29,12 +29,10 @@ import {
 import { DashboardLayout, SubscriptionBilling, LendingSettings, BorrowerManagement, NotificationTemplates, ManualPaymentForm, CompanyProfile, AnalyticsDashboard, LoanDisbursement, FinancialStatements } from '../../components/dashboard';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import type { CreditApplication, BorrowerProfile, UserProfile, Document, AIScoringResult, ScoringConfiguration, BorrowerCreditHistory, FactorExplanation } from '../../types/database';
+import type { CreditApplication, BorrowerProfile, UserProfile, Document, AIScoringResult, ScoringConfiguration, FactorExplanation } from '../../types/database';
 import {
   getOrCreateScoringConfig,
   updateScoringConfig,
-  runCreditScoring,
-  saveScoringResult,
   checkDocumentsVerified,
   logDecisionAudit,
 } from '../../services/creditScoringEngine';
@@ -147,23 +145,26 @@ export function LendingAdminDashboard() {
       return;
     }
 
-    const { data: creditHistory } = await supabase
-      .from('borrower_credit_history')
-      .select('*')
-      .eq('borrower_id', application.borrower_id)
-      .eq('tenant_id', profile.tenant_id)
-      .maybeSingle();
-
     try {
-      const result = await runCreditScoring({
-        application,
-        borrower: application.borrower,
-        documents,
-        creditHistory: creditHistory as BorrowerCreditHistory | null,
-        config: scoringConfig,
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-credit-scoring`;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ application_id: application.id }),
       });
 
-      await saveScoringResult(application.id, result, scoringConfig);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Scoring failed');
+      }
+
       fetchData();
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Scoring failed');
@@ -669,6 +670,138 @@ function ThresholdBar({ label, range, recommendation, color }: { label: string; 
   );
 }
 
+function BorrowerInfoPanel({ application }: { application: ApplicationWithDetails }) {
+  const borrower = application.borrower;
+  const user = borrower?.user;
+
+  const monthlyPayment = application.loan_amount_php / application.loan_term_months;
+  const monthlyIncome = borrower?.monthly_income_php || 0;
+  const dtiRatio = monthlyIncome > 0 ? (monthlyPayment / monthlyIncome) * 100 : 0;
+  const existingDebts = borrower?.existing_debts_php || 0;
+  const totalDti = monthlyIncome > 0 ? ((monthlyPayment + existingDebts) / monthlyIncome) * 100 : 0;
+  const annualIncome = monthlyIncome * 12;
+  const incomeMultiple = annualIncome > 0 ? application.loan_amount_php / annualIncome : 0;
+
+  const getDtiColor = (ratio: number) => {
+    if (ratio <= 20) return 'text-green-700 bg-green-100';
+    if (ratio <= 35) return 'text-yellow-700 bg-yellow-100';
+    return 'text-red-700 bg-red-100';
+  };
+
+  if (!borrower) {
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 mb-6">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-yellow-600" />
+          <p className="text-sm text-yellow-700 font-medium">Borrower information is unavailable. The profile may not have been fully set up.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+          <Users className="w-5 h-5 text-gray-500" />
+          Borrower Profile
+        </h3>
+        {monthlyIncome > 0 && (
+          <span className={`px-3 py-1 text-xs font-bold rounded-full ${getDtiColor(totalDti)}`}>
+            DTI: {totalDti.toFixed(1)}%
+          </span>
+        )}
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-x-6 gap-y-3">
+        <div>
+          <p className="text-xs text-gray-500">Full Name</p>
+          <p className="text-sm font-semibold text-gray-900">{user?.first_name || ''} {user?.last_name || ''}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Email</p>
+          <p className="text-sm font-medium text-gray-900">{user?.email || 'Not provided'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Phone</p>
+          <p className="text-sm font-medium text-gray-900">{user?.phone || 'Not provided'}</p>
+        </div>
+
+        <div>
+          <p className="text-xs text-gray-500">Date of Birth</p>
+          <p className="text-sm font-medium text-gray-900">{borrower.date_of_birth ? new Date(borrower.date_of_birth).toLocaleDateString() : 'Not provided'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Gender</p>
+          <p className="text-sm font-medium text-gray-900 capitalize">{borrower.gender || 'Not provided'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Civil Status</p>
+          <p className="text-sm font-medium text-gray-900 capitalize">{borrower.civil_status || 'Not provided'}</p>
+        </div>
+
+        <div>
+          <p className="text-xs text-gray-500">Employment Status</p>
+          <p className="text-sm font-medium text-gray-900 capitalize">{borrower.employment_status?.replace('_', ' ') || 'Not provided'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Employer</p>
+          <p className="text-sm font-medium text-gray-900">{borrower.employer_name || 'Not provided'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Years Employed</p>
+          <p className="text-sm font-medium text-gray-900">{borrower.years_employed != null ? `${borrower.years_employed} years` : 'Not provided'}</p>
+        </div>
+
+        <div>
+          <p className="text-xs text-gray-500">Monthly Income</p>
+          <p className="text-sm font-bold text-gray-900">{monthlyIncome > 0 ? `PHP ${monthlyIncome.toLocaleString()}` : 'Not provided'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Other Income</p>
+          <p className="text-sm font-medium text-gray-900">{borrower.other_monthly_income_php ? `PHP ${borrower.other_monthly_income_php.toLocaleString()}` : 'None'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Existing Debts</p>
+          <p className="text-sm font-medium text-gray-900">{existingDebts > 0 ? `PHP ${existingDebts.toLocaleString()}/mo` : 'None declared'}</p>
+        </div>
+
+        <div className="md:col-span-2">
+          <p className="text-xs text-gray-500">Address</p>
+          <p className="text-sm font-medium text-gray-900">
+            {[borrower.address, borrower.city, borrower.province].filter(Boolean).join(', ') || 'Not provided'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">TIN</p>
+          <p className="text-sm font-medium text-gray-900">{borrower.tin || 'Not provided'}</p>
+        </div>
+      </div>
+
+      {monthlyIncome > 0 && (
+        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-200">
+          <div className="bg-white rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">Est. Monthly Payment</p>
+            <p className="text-sm font-bold text-gray-900">PHP {monthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          </div>
+          <div className="bg-white rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">Loan DTI Ratio</p>
+            <p className={`text-sm font-bold ${dtiRatio <= 20 ? 'text-green-700' : dtiRatio <= 35 ? 'text-yellow-700' : 'text-red-700'}`}>
+              {dtiRatio.toFixed(1)}%
+            </p>
+          </div>
+          <div className="bg-white rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">Income Multiple</p>
+            <p className={`text-sm font-bold ${incomeMultiple <= 1 ? 'text-green-700' : incomeMultiple <= 2 ? 'text-yellow-700' : 'text-red-700'}`}>
+              {incomeMultiple.toFixed(1)}x annual
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApplicationDetailModal({
   application,
   scoringConfig,
@@ -698,7 +831,7 @@ function ApplicationDetailModal({
   const allDocsVerified = checkDocumentsVerified(documents);
   const hasScoring = !!application.ai_scoring;
   const canScore = allDocsVerified && !hasScoring && ['submitted', 'under_review', 'verified'].includes(application.status);
-  const canDecide = ['under_review', 'verified', 'scored'].includes(application.status);
+  const canDecide = ['submitted', 'under_review', 'verified', 'scored'].includes(application.status);
 
   async function handleRunScoring() {
     setScoring(true);
@@ -726,27 +859,39 @@ function ApplicationDetailModal({
         </div>
 
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
-            <div className="space-y-3">
-              <h3 className="font-semibold text-gray-900">Loan Details</h3>
-              <InfoRow label="Amount" value={`PHP ${application.loan_amount_php.toLocaleString()}`} />
-              <InfoRow label="Term" value={`${application.loan_term_months} months`} />
-              <InfoRow label="Purpose" value={application.loan_purpose} />
-              <InfoRow label="Collateral" value={application.collateral_type || 'None'} />
-              {application.collateral_estimated_value_php && (
-                <InfoRow label="Collateral Value" value={`PHP ${application.collateral_estimated_value_php.toLocaleString()}`} />
-              )}
-            </div>
+          <BorrowerInfoPanel application={application} />
 
-            <div className="space-y-3">
-              <h3 className="font-semibold text-gray-900">Borrower Information</h3>
-              <InfoRow label="Name" value={`${application.borrower?.user?.first_name || ''} ${application.borrower?.user?.last_name || ''}`.trim() || 'Not specified'} />
-              <InfoRow label="Email" value={application.borrower?.user?.email || 'Not specified'} />
-              <InfoRow label="Phone" value={application.borrower?.user?.phone || 'Not specified'} />
-              <InfoRow label="Employment" value={application.borrower?.employment_status || 'Not specified'} />
-              <InfoRow label="Monthly Income" value={application.borrower?.monthly_income_php ? `PHP ${application.borrower.monthly_income_php.toLocaleString()}` : 'Not specified'} />
-              <InfoRow label="Years Employed" value={application.borrower?.years_employed?.toString() || 'Not specified'} />
-              <InfoRow label="Address" value={`${application.borrower?.city || ''}, ${application.borrower?.province || ''}`.trim() || 'Not specified'} />
+          <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Loan Details</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Amount Requested</p>
+                <p className="text-lg font-bold text-gray-900">PHP {application.loan_amount_php.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Loan Term</p>
+                <p className="text-lg font-bold text-gray-900">{application.loan_term_months} months</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Purpose</p>
+                <p className="text-sm font-semibold text-gray-900">{application.loan_purpose}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Collateral</p>
+                <p className="text-sm font-semibold text-gray-900">{application.collateral_type || 'None (Unsecured)'}</p>
+              </div>
+              {application.collateral_estimated_value_php && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Collateral Value</p>
+                  <p className="text-sm font-semibold text-gray-900">PHP {application.collateral_estimated_value_php.toLocaleString()}</p>
+                </div>
+              )}
+              {application.collateral_estimated_value_php && application.collateral_estimated_value_php > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">LTV Ratio</p>
+                  <p className="text-sm font-semibold text-gray-900">{((application.loan_amount_php / application.collateral_estimated_value_php) * 100).toFixed(1)}%</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -931,15 +1076,17 @@ function ScoreBreakdownSection({ scoring, config }: { scoring: AIScoringResult; 
   );
 }
 
-function FactorBreakdown({ factor }: { factor: FactorExplanation }) {
+function FactorBreakdown({ factor }: { factor: FactorExplanation & { risk_signals?: string[]; positive_signals?: string[] } }) {
   const [showDetails, setShowDetails] = useState(false);
+  const riskSignals = factor.risk_signals || [];
+  const positiveSignals = factor.positive_signals || [];
 
   return (
     <div className="bg-white rounded-lg p-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-            <span className="text-lg font-bold text-primary-600">{factor.score}</span>
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${factor.score >= 70 ? 'bg-green-100' : factor.score >= 50 ? 'bg-yellow-100' : 'bg-red-100'}`}>
+            <span className={`text-lg font-bold ${factor.score >= 70 ? 'text-green-700' : factor.score >= 50 ? 'text-yellow-700' : 'text-red-700'}`}>{factor.score}</span>
           </div>
           <div>
             <p className="font-medium text-gray-900">{factor.factor}</p>
@@ -952,20 +1099,35 @@ function FactorBreakdown({ factor }: { factor: FactorExplanation }) {
         </div>
       </div>
 
-      <div className="h-2 bg-gray-200 rounded-full overflow-hidden mb-2">
-        <div className={`h-full rounded-full ${factor.score >= 70 ? 'bg-green-500' : factor.score >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${factor.score}%` }}></div>
+      <div className="h-2 bg-gray-200 rounded-full overflow-hidden mb-3">
+        <div className={`h-full rounded-full transition-all ${factor.score >= 70 ? 'bg-green-500' : factor.score >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${factor.score}%` }}></div>
       </div>
 
+      {(positiveSignals.length > 0 || riskSignals.length > 0) && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {positiveSignals.map((s, i) => (
+            <span key={`p${i}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 text-[10px] font-medium rounded-full">
+              <CheckCircle className="w-3 h-3" />{s}
+            </span>
+          ))}
+          {riskSignals.map((s, i) => (
+            <span key={`r${i}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-700 text-[10px] font-medium rounded-full">
+              <AlertTriangle className="w-3 h-3" />{s}
+            </span>
+          ))}
+        </div>
+      )}
+
       <button onClick={() => setShowDetails(!showDetails)} className="text-xs text-primary-600 hover:text-primary-700">
-        {showDetails ? 'Hide details' : 'Show details'}
+        {showDetails ? 'Hide calculation details' : 'Show calculation details'}
       </button>
 
       {showDetails && factor.details && (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 space-y-1 bg-gray-50 rounded-lg p-3">
           {factor.details.map((detail, i) => (
             <li key={i} className="text-xs text-gray-600 flex items-start gap-2">
-              <span className="text-gray-400">-</span>
-              {detail}
+              <span className="text-gray-400 mt-0.5">-</span>
+              <span>{detail}</span>
             </li>
           ))}
         </ul>
