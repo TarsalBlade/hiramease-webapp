@@ -1046,6 +1046,16 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
   const [scoringComplete, setScoringComplete] = useState(false);
   const [scoreResult, setScoreResult] = useState<{ score: number; risk: string; recommendation: string } | null>(null);
   const [lendingSettings, setLendingSettings] = useState<TenantLendingSettings | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    employment_status: borrowerProfile.employment_status || '',
+    employer_name: borrowerProfile.employer_name || '',
+    monthly_income_php: borrowerProfile.monthly_income_php?.toString() || '',
+    years_employed: borrowerProfile.years_employed?.toString() || '',
+    address: borrowerProfile.address || '',
+    city: borrowerProfile.city || '',
+    province: borrowerProfile.province || '',
+  });
   const [form, setForm] = useState({
     loan_amount_php: '',
     loan_purpose: '',
@@ -1055,6 +1065,35 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
     collateral_estimated_value_php: '',
   });
   const [files, setFiles] = useState<{ type: string; file: File }[]>([]);
+
+  const profileComplete = profileForm.employment_status && profileForm.monthly_income_php && profileForm.address && profileForm.city && profileForm.province;
+
+  async function saveProfileAndContinue() {
+    if (!profileComplete) return;
+    setSavingProfile(true);
+    await supabase
+      .from('borrower_profiles')
+      .update({
+        employment_status: profileForm.employment_status || null,
+        employer_name: profileForm.employer_name || null,
+        monthly_income_php: profileForm.monthly_income_php ? parseFloat(profileForm.monthly_income_php) : null,
+        years_employed: profileForm.years_employed ? parseInt(profileForm.years_employed) : null,
+        address: profileForm.address || null,
+        city: profileForm.city || null,
+        province: profileForm.province || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', borrowerProfile.id);
+    borrowerProfile.employment_status = profileForm.employment_status || null;
+    borrowerProfile.monthly_income_php = profileForm.monthly_income_php ? parseFloat(profileForm.monthly_income_php) : null;
+    borrowerProfile.years_employed = profileForm.years_employed ? parseInt(profileForm.years_employed) : null;
+    borrowerProfile.address = profileForm.address || null;
+    borrowerProfile.city = profileForm.city || null;
+    borrowerProfile.province = profileForm.province || null;
+    borrowerProfile.employer_name = profileForm.employer_name || null;
+    setSavingProfile(false);
+    setStep(2);
+  }
 
   useEffect(() => {
     supabase
@@ -1108,7 +1147,7 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
   async function handleProceedToScoring() {
     setScoring(true);
     setScoringComplete(false);
-    setStep(4);
+    setStep(5);
 
     await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -1208,16 +1247,16 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">New Loan Application</h2>
-            <div className="flex items-center gap-4 mt-1">
-              {[1, 2, 3, 4].map((s) => (
-                <div key={s} className="flex items-center gap-1.5">
+            <div className="flex items-center gap-3 mt-1">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <div key={s} className="flex items-center gap-1">
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                     step >= s ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
                   }`}>
                     {step > s ? <CheckCircle className="w-3.5 h-3.5" /> : s}
                   </div>
-                  <span className={`text-xs ${step >= s ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
-                    {s === 1 ? 'Details' : s === 2 ? 'Review' : s === 3 ? 'Documents' : 'Score'}
+                  <span className={`text-xs hidden sm:inline ${step >= s ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
+                    {s === 1 ? 'Profile' : s === 2 ? 'Loan' : s === 3 ? 'Review' : s === 4 ? 'Docs' : 'Score'}
                   </span>
                 </div>
               ))}
@@ -1230,6 +1269,58 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
 
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-160px)]">
           {step === 1 && (
+            <div className="space-y-5">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-700">Please fill in your employment and address details. This information is required for your loan application and will be reviewed by the lending company.</p>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Employment Status <span className="text-red-500">*</span></label>
+                  <select value={profileForm.employment_status} onChange={(e) => setProfileForm({ ...profileForm, employment_status: e.target.value })} className="input-field">
+                    <option value="">Select</option>
+                    <option value="employed">Employed</option>
+                    <option value="self_employed">Self Employed</option>
+                    <option value="unemployed">Unemployed</option>
+                    <option value="retired">Retired</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Employer Name</label>
+                  <input type="text" value={profileForm.employer_name} onChange={(e) => setProfileForm({ ...profileForm, employer_name: e.target.value })} className="input-field" placeholder="Company name" />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Monthly Income (PHP) <span className="text-red-500">*</span></label>
+                  <input type="number" value={profileForm.monthly_income_php} onChange={(e) => setProfileForm({ ...profileForm, monthly_income_php: e.target.value })} className="input-field" placeholder="e.g., 30000" min="0" />
+                </div>
+                <div>
+                  <label className="label">Years Employed</label>
+                  <input type="number" value={profileForm.years_employed} onChange={(e) => setProfileForm({ ...profileForm, years_employed: e.target.value })} className="input-field" placeholder="e.g., 3" min="0" />
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Address <span className="text-red-500">*</span></label>
+                <input type="text" value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} className="input-field" placeholder="Street address" />
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">City <span className="text-red-500">*</span></label>
+                  <input type="text" value={profileForm.city} onChange={(e) => setProfileForm({ ...profileForm, city: e.target.value })} className="input-field" placeholder="City" />
+                </div>
+                <div>
+                  <label className="label">Province <span className="text-red-500">*</span></label>
+                  <input type="text" value={profileForm.province} onChange={(e) => setProfileForm({ ...profileForm, province: e.target.value })} className="input-field" placeholder="Province" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
             <div className="space-y-5">
               {lendingSettings && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-2">
@@ -1329,7 +1420,7 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
             </div>
           )}
 
-          {step === 2 && computation && lendingSettings && (
+          {step === 3 && computation && lendingSettings && (
             <div className="space-y-5">
               <div className="text-center mb-2">
                 <Calculator className="w-8 h-8 text-blue-600 mx-auto mb-2" />
@@ -1396,14 +1487,14 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
             </div>
           )}
 
-          {step === 2 && !computation && (
+          {step === 3 && !computation && (
             <div className="text-center py-8">
               <Calculator className="w-12 h-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500">Unable to compute loan details. Please go back and fill in the loan amount.</p>
             </div>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <div className="space-y-5">
               <p className="text-gray-600">Upload required documents to support your application.</p>
 
@@ -1426,7 +1517,7 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="space-y-6">
               {!scoringComplete && (
                 <div className="text-center py-12">
@@ -1515,29 +1606,34 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex justify-between">
-          {step > 1 && step < 4 ? (
+          {step > 1 && step < 5 ? (
             <button onClick={() => setStep(step - 1)} className="btn-outline">Back</button>
           ) : (
             <div />
           )}
 
           {step === 1 && (
-            <button onClick={() => setStep(2)} disabled={!canProceedStep1} className="btn-primary disabled:opacity-50">
-              View Computation
+            <button onClick={saveProfileAndContinue} disabled={!profileComplete || savingProfile} className="btn-primary disabled:opacity-50">
+              {savingProfile ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Continue'}
             </button>
           )}
           {step === 2 && (
-            <button onClick={() => setStep(3)} className="btn-primary">
-              Continue to Upload
+            <button onClick={() => setStep(3)} disabled={!canProceedStep1} className="btn-primary disabled:opacity-50">
+              View Computation
             </button>
           )}
           {step === 3 && (
+            <button onClick={() => setStep(4)} className="btn-primary">
+              Continue to Upload
+            </button>
+          )}
+          {step === 4 && (
             <button onClick={handleProceedToScoring} disabled={files.length === 0} className="btn-primary disabled:opacity-50 flex items-center gap-2">
               <Brain className="w-5 h-5" />
               Analyze Application
             </button>
           )}
-          {step === 4 && scoringComplete && (
+          {step === 5 && scoringComplete && (
             <button onClick={handleSubmit} disabled={submitting} className="btn-primary disabled:opacity-50">
               {submitting ? (
                 <>
