@@ -1161,9 +1161,10 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
     const termScore = term <= 12 ? 90 : term <= 24 ? 75 : 60;
     const collateralScore = form.collateral_type ? 85 : 50;
 
-    const overall = Math.round((incomeScore * 0.3) + (dtiScore * 0.3) + (termScore * 0.2) + (collateralScore * 0.2));
-    const risk = overall >= 700 ? 'low' : overall >= 550 ? 'medium' : 'high';
-    const recommendation = overall >= 650 ? 'Likely to be approved' : overall >= 500 ? 'Under review' : 'May require additional information';
+    const weightedSum = (incomeScore * 0.3) + (dtiScore * 0.3) + (termScore * 0.2) + (collateralScore * 0.2);
+    const overall = Math.round(300 + (weightedSum / 100) * 550);
+    const risk = overall >= 720 ? 'low' : overall >= 620 ? 'medium' : 'high';
+    const recommendation = overall >= 720 ? 'Likely to be approved' : overall >= 620 ? 'Under review - additional documents may help' : 'May require additional information or collateral';
 
     setScoreResult({ score: overall, risk, recommendation });
     setScoringComplete(true);
