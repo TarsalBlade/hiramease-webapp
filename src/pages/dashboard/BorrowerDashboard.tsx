@@ -1166,6 +1166,26 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
           verification_status: 'pending',
         });
       }
+
+      try {
+        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`;
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+            'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            tenant_id: borrowerProfile.tenant_id,
+            application_id: application.id,
+            loan_amount: parseFloat(form.loan_amount_php),
+            loan_purpose: form.loan_purpose,
+            action: 'new_application',
+          }),
+        });
+      } catch {}
     }
 
     setSubmitting(false);

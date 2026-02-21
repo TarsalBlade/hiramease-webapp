@@ -218,26 +218,16 @@ export function LendingAdminDashboard() {
       smsBody = smsBody.replace(new RegExp(key, 'g'), value);
     });
 
-    await supabase.from('notifications').insert({
-      user_id: borrower.user_id,
-      tenant_id: profile.tenant_id,
-      title: template.subject,
-      message: inAppMessage,
-      type: decision === 'approved' ? 'loan_approved' : 'loan_rejected',
-      metadata: {
-        application_id: application.id,
-        email_body: emailBody,
-        sms_body: smsBody,
-        email: borrowerUser.email,
-        phone: borrowerUser.phone,
-      },
-    });
-
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`;
+      const { data: { session } } = await supabase.auth.getSession();
       await fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
         body: JSON.stringify({
           user_id: borrower.user_id,
           tenant_id: profile.tenant_id,

@@ -9,16 +9,20 @@ const corsHeaders = {
 };
 
 interface NotificationPayload {
+  action?: string;
   notification_id?: string;
-  user_id: string;
-  title: string;
-  message: string;
-  type: string;
+  user_id?: string;
+  title?: string;
+  message?: string;
+  type?: string;
   email?: string;
   phone?: string;
   email_body?: string;
   sms_body?: string;
   tenant_id?: string;
+  application_id?: string;
+  loan_amount?: number;
+  loan_purpose?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -33,25 +37,71 @@ Deno.serve(async (req: Request) => {
 
     const payload: NotificationPayload = await req.json();
 
-    const results: { email_sent: boolean; sms_sent: boolean; in_app_created: boolean } = {
+    const results: {
+      email_sent: boolean;
+      sms_sent: boolean;
+      in_app_created: boolean;
+      admin_notified: boolean;
+    } = {
       email_sent: false,
       sms_sent: false,
       in_app_created: false,
+      admin_notified: false,
     };
 
-    if (payload.user_id && payload.title) {
-      const { error: notifError } = await supabase.from("notifications").insert({
-        user_id: payload.user_id,
-        tenant_id: payload.tenant_id || null,
-        title: payload.title,
-        message: payload.message || "",
-        type: payload.type || "system",
-        metadata: {
-          notification_id: payload.notification_id,
-          email: payload.email,
-          phone: payload.phone,
-        },
+    if (payload.action === "new_application" && payload.tenant_id) {
+      const { data: admins } = await supabase
+        .from("user_profiles")
+        .select("id, email, first_name, last_name")
+        .eq("tenant_id", payload.tenant_id)
+        .eq("role", "lending_admin")
+        .eq("is_active", true);
+
+      if (admins && admins.length > 0) {
+        const loanAmountStr = payload.loan_amount
+          ? `PHP ${Number(payload.loan_amount).toLocaleString()}`
+          : "N/A";
+
+        const notifications = admins.map((admin) => ({
+          user_id: admin.id,
+          tenant_id: payload.tenant_id,
+          title: "New Loan Application",
+          message: `A new loan application for ${loanAmountStr} (${payload.loan_purpose || "General"}) has been submitted and requires your review.`,
+          type: "new_application",
+          metadata: {
+            application_id: payload.application_id,
+            loan_amount: payload.loan_amount,
+            loan_purpose: payload.loan_purpose,
+          },
+        }));
+
+        const { error: insertError } = await supabase
+          .from("notifications")
+          .insert(notifications);
+
+        results.admin_notified = !insertError;
+      }
+
+      return new Response(JSON.stringify({ success: true, results }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (payload.user_id && payload.title) {
+      const { error: notifError } = await supabase
+        .from("notifications")
+        .insert({
+          user_id: payload.user_id,
+          tenant_id: payload.tenant_id || null,
+          title: payload.title,
+          message: payload.message || "",
+          type: payload.type || "system",
+          metadata: {
+            notification_id: payload.notification_id,
+            email: payload.email,
+            phone: payload.phone,
+          },
+        });
       results.in_app_created = !notifError;
     }
 
