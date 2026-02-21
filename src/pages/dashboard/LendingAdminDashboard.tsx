@@ -122,15 +122,39 @@ export function LendingAdminDashboard() {
       verified_at: new Date().toISOString(),
     });
 
-    fetchData();
-    if (selectedApplication) {
-      const updated = applications.find((a) => a.id === selectedApplication.id);
-      if (updated) {
-        setSelectedApplication({
-          ...updated,
-          documents: updated.documents?.map((d) => (d.id === docId ? { ...d, verification_status: status } : d)),
-        });
+    setSelectedApplication((prev) =>
+      prev
+        ? {
+            ...prev,
+            documents: prev.documents?.map((d) =>
+              d.id === docId ? { ...d, verification_status: status } : d
+            ),
+          }
+        : prev
+    );
+
+    if (selectedApplication?.id) {
+      const { data: refreshedApp } = await supabase
+        .from('credit_applications')
+        .select(`
+          *,
+          borrower:borrower_profiles(*, user:user_profiles(*)),
+          documents(*),
+          ai_scoring:ai_scoring_results(*)
+        `)
+        .eq('id', selectedApplication.id)
+        .maybeSingle();
+
+      if (refreshedApp) {
+        const normalized = {
+          ...refreshedApp,
+          ai_scoring: Array.isArray(refreshedApp.ai_scoring) ? refreshedApp.ai_scoring[0] : refreshedApp.ai_scoring,
+        };
+        setSelectedApplication(normalized);
+        setApplications((prev) => prev.map((a) => a.id === normalized.id ? normalized : a));
       }
+    } else {
+      fetchData();
     }
   }
 
