@@ -117,7 +117,7 @@
 │  - Static asset distribution                                        │
 └─────────────────────┬───────────────────────────────────────────────┘
                       │
-                      │ TLS 1.3 / Encrypted tunnel
+                      │ TLS 1.3 / Encrypted tunnel 
                       │
 ┌─────────────────────▼───────────────────────────────────────────────┐
 │  ZONE 3: APPLICATION TIER (Frontend Hosting)                        │
