@@ -1,17 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LandingPage } from './pages/LandingPage';
-import { LoginPage, SignUpPage } from './pages/auth';
+import { LoginPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage } from './pages/auth';
 import { SuperAdminDashboard, LendingAdminDashboard, BorrowerDashboard } from './pages/dashboard';
 import { SubscribePage } from './pages/SubscribePage';
 import { BusinessModel } from './components/landing/BusinessModel';
+import { supabase } from './lib/supabase';
 import { Loader2 } from 'lucide-react';
 
-type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard' | 'business_model';
+type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard' | 'business_model' | 'forgot_password' | 'reset_password';
 
 function AppContent() {
   const { user, profile, subscription, loading, refreshSubscription, refreshProfile } = useAuth();
-  const [viewStack, setViewStack] = useState<AppView[]>(['landing']);
+  const [viewStack, setViewStack] = useState<AppView[]>(() => {
+    // On load, detect if this is a password reset redirect (Supabase appends ?type=recovery)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('type') === 'recovery') return ['reset_password'];
+    return ['landing'];
+  });
 
   const view = viewStack[viewStack.length - 1];
 
@@ -23,9 +29,21 @@ function AppContent() {
     setViewStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
   }, []);
 
+  // Listen for Supabase PASSWORD_RECOVERY event (fired when user clicks the reset link)
+  useEffect(() => {
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setViewStack(['reset_password']);
+      }
+    });
+    return () => authSub.unsubscribe();
+  }, []);
+
   // Auth-driven navigation: only push, never replace existing navigation history
   useEffect(() => {
     if (loading) return;
+    // Don't auto-redirect while user is on password reset flow
+    if (view === 'reset_password') return;
 
     if (user && profile) {
       if (
@@ -82,6 +100,15 @@ function AppContent() {
     );
   }
 
+  // Password reset page (accessed via email link)
+  if (view === 'reset_password') {
+    return (
+      <ResetPasswordPage
+        onSuccess={() => setViewStack(['login'])}
+      />
+    );
+  }
+
   // Subscription page
   if (view === 'subscribe' && user && profile) {
     return <SubscribePage onComplete={handleSubscriptionComplete} />;
@@ -105,6 +132,16 @@ function AppContent() {
     return <BusinessModel onGetStarted={() => navigateTo('signup')} />;
   }
 
+  // Forgot password page
+  if (view === 'forgot_password') {
+    return (
+      <ForgotPasswordPage
+        onBack={goBack}
+        onLogin={() => setViewStack(['login'])}
+      />
+    );
+  }
+
   // Login page
   if (view === 'login') {
     return (
@@ -112,6 +149,7 @@ function AppContent() {
         onBack={goBack}
         onSignUp={() => navigateTo('signup')}
         onSuccess={() => setViewStack(['dashboard'])}
+        onForgotPassword={() => navigateTo('forgot_password')}
       />
     );
   }

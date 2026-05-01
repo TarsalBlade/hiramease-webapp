@@ -6,9 +6,10 @@ interface LoginPageProps {
   onBack: () => void;
   onSignUp: () => void;
   onSuccess: () => void;
+  onForgotPassword: () => void;
 }
 
-export function LoginPage({ onBack, onSignUp, onSuccess }: LoginPageProps) {
+export function LoginPage({ onBack, onSignUp, onSuccess, onForgotPassword }: LoginPageProps) {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -127,7 +128,7 @@ export function LoginPage({ onBack, onSignUp, onSuccess }: LoginPageProps) {
                 <input type="checkbox" className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500" />
                 <span className="text-sm text-gray-600">Remember me</span>
               </label>
-              <button type="button" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
+              <button type="button" onClick={onForgotPassword} className="text-sm text-primary-600 hover:text-primary-700 font-medium">
                 Forgot password?
               </button>
             </div>
