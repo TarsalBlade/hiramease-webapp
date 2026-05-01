@@ -263,15 +263,13 @@ export function LendingAdminDashboard() {
       '{{rejection_reason}}': rejectionReason || 'Not specified',
     };
 
-    let inAppMessage = template.in_app_message;
     let emailBody = template.email_body;
-    let smsBody = template.sms_body;
 
     Object.entries(replacements).forEach(([key, value]) => {
-      inAppMessage = inAppMessage.replace(new RegExp(key, 'g'), value);
       emailBody = emailBody.replace(new RegExp(key, 'g'), value);
-      smsBody = smsBody.replace(new RegExp(key, 'g'), value);
     });
+
+    if (!borrowerUser.email) return;
 
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`;
@@ -284,15 +282,9 @@ export function LendingAdminDashboard() {
           'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
-          user_id: borrower.user_id,
-          tenant_id: profile.tenant_id,
-          title: template.subject,
-          message: inAppMessage,
-          type: decision === 'approved' ? 'loan_approved' : 'loan_rejected',
           email: borrowerUser.email,
-          phone: borrowerUser.phone,
+          title: template.subject,
           email_body: emailBody,
-          sms_body: smsBody,
         }),
       });
     } catch {}
