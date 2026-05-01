@@ -294,8 +294,12 @@ export function LendingAdminDashboard() {
           'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
+          user_id: borrowerUser.id,
+          tenant_id: profile.tenant_id,
           email: borrowerUser.email,
           title: template.subject,
+          message: template.subject,
+          type: decision === 'approved' ? 'loan_approved' : 'loan_rejected',
           email_body: emailBody,
         }),
       });
