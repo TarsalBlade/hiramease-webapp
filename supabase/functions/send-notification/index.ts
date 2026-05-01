@@ -8,9 +8,9 @@ const corsHeaders = {
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const RESEND_API_KEY = "re_WvAQPCtG_P4xKaQXRQdghfDKghmZMKyz7";
-// Use verified sender domain from env, fallback to Resend's shared testing domain
-const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") || "HiramEase <onboarding@resend.dev>";
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") || "";
+const FROM_EMAIL = Deno.env.get("BREVO_FROM_EMAIL") || "HiramEase <notifications@hiramease.com>";
+const FROM_NAME = "HiramEase";
 
 interface NotificationPayload {
   action?: string;
@@ -29,18 +29,21 @@ interface NotificationPayload {
 
 async function sendEmail(to: string, subject: string, body: string): Promise<boolean> {
   try {
-    const apiKey = Deno.env.get("RESEND_API_KEY") || RESEND_API_KEY;
-    const response = await fetch("https://api.resend.com/emails", {
+    const [fromName, fromEmail] = FROM_EMAIL.includes("<")
+      ? [FROM_EMAIL.split("<")[0].trim(), FROM_EMAIL.split("<")[1].replace(">", "").trim()]
+      : [FROM_NAME, FROM_EMAIL];
+
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "api-key": BREVO_API_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [to],
+        sender: { name: fromName, email: fromEmail },
+        to: [{ email: to }],
         subject: subject || "Notification from HiramEase",
-        html: `
+        htmlContent: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <div style="background: #1d4ed8; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
               <h1 style="margin: 0; font-size: 24px;">HiramEase</h1>
@@ -60,7 +63,7 @@ async function sendEmail(to: string, subject: string, body: string): Promise<boo
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Resend email failed:", response.status, errorText);
+      console.error("Brevo email failed:", response.status, errorText);
     }
     return response.ok;
   } catch (err) {
