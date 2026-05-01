@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CreditCard, Smartphone, QrCode, AlertCircle, Lock } from 'lucide-react';
+import { QrCode, AlertCircle, Lock } from 'lucide-react';
 import {
   createCheckoutSession,
   pesosTocentavos,
@@ -16,14 +16,6 @@ interface PaymentFormProps {
   allowCustomAmount?: boolean;
 }
 
-const paymentMethods = [
-  { type: 'card', icon: CreditCard, label: 'Card', description: 'Visa, Mastercard' },
-  { type: 'gcash', icon: Smartphone, label: 'GCash', description: 'Digital wallet' },
-  { type: 'grabpay', icon: Smartphone, label: 'GrabPay', description: 'Digital wallet' },
-  { type: 'paymaya', icon: Smartphone, label: 'PayMaya', description: 'Digital wallet' },
-  { type: 'qrph', icon: QrCode, label: 'QR Ph', description: 'Scan to pay' },
-];
-
 export default function PaymentForm({
   amount: initialAmount,
   description,
@@ -33,7 +25,6 @@ export default function PaymentForm({
   allowCustomAmount = false,
 }: PaymentFormProps) {
   const [amount, setAmount] = useState(initialAmount);
-  const [selectedMethod, setSelectedMethod] = useState('card');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [validationError, setValidationError] = useState<string>('');
@@ -110,8 +101,6 @@ export default function PaymentForm({
 
   const isFormValid = !validationError && amount > 0 && !loading && (allowCustomAmount ? amount >= 100 : true);
 
-  const selectedMethodLabel = paymentMethods.find(m => m.type === selectedMethod)?.label || selectedMethod;
-
   return (
     <>
       <div className="space-y-6">
@@ -149,26 +138,13 @@ export default function PaymentForm({
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold mb-1 text-gray-700">Available Payment Methods</h3>
-          <p className="text-xs text-gray-500 mb-3">
-            You will choose your final payment method on the secure PayMongo checkout page.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {paymentMethods.map(({ type, icon: Icon, label }) => (
-              <button
-                key={type}
-                onClick={() => setSelectedMethod(type)}
-                disabled={loading}
-                className={`px-3 py-2 border rounded-lg flex items-center gap-2 transition-all text-sm disabled:opacity-50 ${
-                  selectedMethod === type
-                    ? 'border-blue-600 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 hover:border-gray-300 text-gray-600'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="font-medium">{label}</span>
-              </button>
-            ))}
+          <h3 className="text-sm font-semibold mb-2 text-gray-700">Payment Method</h3>
+          <div className="flex items-center gap-3 px-4 py-3 border border-blue-200 bg-blue-50 rounded-lg">
+            <QrCode className="w-5 h-5 text-blue-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-800">QR Ph</p>
+              <p className="text-xs text-blue-600">Scan to pay via any bank or e-wallet app</p>
+            </div>
           </div>
         </div>
 
