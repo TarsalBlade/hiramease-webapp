@@ -25,6 +25,7 @@ import {
   Bell,
   DollarSign,
   Building2,
+  Mail,
 } from 'lucide-react';
 import { DashboardLayout, SubscriptionBilling, LendingSettings, BorrowerManagement, NotificationTemplates, ManualPaymentForm, CompanyProfile, AnalyticsDashboard, LoanDisbursement, FinancialStatements } from '../../components/dashboard';
 import { useAuth } from '../../contexts/AuthContext';
@@ -288,6 +289,16 @@ export function LendingAdminDashboard() {
         }),
       });
     } catch {}
+  }
+
+  async function handleSendRejectionEmail(application: ApplicationWithDetails) {
+    const { data: decisionRow } = await supabase
+      .from('application_decisions')
+      .select('rejection_reason')
+      .eq('application_id', application.id)
+      .maybeSingle();
+
+    await sendLoanNotification(application, 'rejected', undefined, decisionRow?.rejection_reason || undefined);
   }
 
   async function handleDecision(
@@ -560,6 +571,7 @@ export function LendingAdminDashboard() {
           onVerifyDocument={handleVerifyDocument}
           onTriggerAI={triggerAIScoring}
           onDecision={handleDecision}
+          onSendEmail={handleSendRejectionEmail}
         />
       )}
     </DashboardLayout>
@@ -873,6 +885,7 @@ function ApplicationDetailModal({
   onVerifyDocument,
   onTriggerAI,
   onDecision,
+  onSendEmail,
 }: {
   application: ApplicationWithDetails;
   scoringConfig: ScoringConfiguration | null;
@@ -887,9 +900,12 @@ function ApplicationDetailModal({
     approvalDetails?: { amount?: number; term?: number; rate?: number; conditions?: string },
     rejectionReason?: string
   ) => void;
+  onSendEmail: (application: ApplicationWithDetails) => Promise<void>;
 }) {
   const [showDecisionModal, setShowDecisionModal] = useState<'approve' | 'reject' | null>(null);
   const [scoring, setScoring] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const documents = application.documents || [];
   const allDocsVerified = checkDocumentsVerified(documents);
@@ -901,6 +917,14 @@ function ApplicationDetailModal({
     setScoring(true);
     await onTriggerAI(application);
     setScoring(false);
+  }
+
+  async function handleSendEmail() {
+    setSendingEmail(true);
+    await onSendEmail(application);
+    setSendingEmail(false);
+    setEmailSent(true);
+    setTimeout(() => setEmailSent(false), 4000);
   }
 
   return (
@@ -991,6 +1015,26 @@ function ApplicationDetailModal({
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap gap-3 justify-end">
+          {application.status === 'rejected' && (
+            <button
+              onClick={handleSendEmail}
+              disabled={sendingEmail}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium border transition-colors disabled:opacity-50 ${
+                emailSent
+                  ? 'border-green-300 bg-green-50 text-green-700'
+                  : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+              }`}
+            >
+              {sendingEmail ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : emailSent ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <Mail className="w-4 h-4" />
+              )}
+              {sendingEmail ? 'Sending...' : emailSent ? 'Email Sent' : 'Send Rejection Email'}
+            </button>
+          )}
           {canDecide && (
             <>
               <button onClick={() => setShowDecisionModal('reject')} className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg font-medium">
