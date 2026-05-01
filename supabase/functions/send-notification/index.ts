@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import nodemailer from "npm:nodemailer@6.9.13";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,9 +9,16 @@ const corsHeaders = {
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") || "";
-const FROM_EMAIL = Deno.env.get("BREVO_FROM_EMAIL") || "HiramEase <notifications@hiramease.com>";
-const FROM_NAME = "HiramEase";
+const GMAIL_USER = Deno.env.get("GMAIL_USER") || "";
+const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD") || "";
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: GMAIL_USER,
+    pass: GMAIL_APP_PASSWORD,
+  },
+});
 
 interface NotificationPayload {
   action?: string;
@@ -29,45 +37,29 @@ interface NotificationPayload {
 
 async function sendEmail(to: string, subject: string, body: string): Promise<boolean> {
   try {
-    const [fromName, fromEmail] = FROM_EMAIL.includes("<")
-      ? [FROM_EMAIL.split("<")[0].trim(), FROM_EMAIL.split("<")[1].replace(">", "").trim()]
-      : [FROM_NAME, FROM_EMAIL];
-
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "api-key": BREVO_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sender: { name: fromName, email: fromEmail },
-        to: [{ email: to }],
-        subject: subject || "Notification from HiramEase",
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="background: #1d4ed8; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px;">HiramEase</h1>
-            </div>
-            <div style="background: #f9fafb; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
-              <h2 style="color: #111827; margin-top: 0;">${subject || "Notification"}</h2>
-              <div style="color: #4b5563; line-height: 1.6;">${body}</div>
-              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-              <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-                This is an automated notification from HiramEase. Please do not reply to this email.
-              </p>
-            </div>
+    await transporter.sendMail({
+      from: `"HiramEase" <${GMAIL_USER}>`,
+      to,
+      subject: subject || "Notification from HiramEase",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: #1d4ed8; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h1 style="margin: 0; font-size: 24px;">HiramEase</h1>
           </div>
-        `,
-      }),
+          <div style="background: #f9fafb; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+            <h2 style="color: #111827; margin-top: 0;">${subject || "Notification"}</h2>
+            <div style="color: #4b5563; line-height: 1.6;">${body}</div>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+              This is an automated notification from HiramEase. Please do not reply to this email.
+            </p>
+          </div>
+        </div>
+      `,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Brevo email failed:", response.status, errorText);
-    }
-    return response.ok;
+    return true;
   } catch (err) {
-    console.error("Email send exception:", err);
+    console.error("Gmail SMTP send failed:", err);
     return false;
   }
 }
@@ -127,19 +119,18 @@ Deno.serve(async (req: Request) => {
 
         results.admin_notified = !insertError;
 
-        // Email all admins
         for (const admin of admins) {
           if (admin.email) {
-            await sendEmail(
+            const sent = await sendEmail(
               admin.email,
               "New Loan Application Received",
               `<p>Dear ${admin.first_name},</p>
                <p>A new loan application for <strong>${loanAmountStr}</strong> (${payload.loan_purpose || "General"}) has been submitted and requires your review.</p>
                <p>Please log in to the HiramEase dashboard to review the application.</p>`
             );
+            if (sent) results.email_sent = true;
           }
         }
-        if (admins[0]?.email) results.email_sent = true;
       }
 
       return new Response(JSON.stringify({ success: true, results }), {
@@ -149,14 +140,12 @@ Deno.serve(async (req: Request) => {
 
     // --- Payment success: notify tenant admin and all superadmins ---
     if (payload.action === "payment_success" && payload.tenant_id) {
-      // Superadmins
       const { data: superAdmins } = await supabase
         .from("user_profiles")
         .select("id, email, first_name, last_name")
         .eq("role", "super_admin")
         .eq("is_active", true);
 
-      // Tenant admins
       const { data: tenantAdmins } = await supabase
         .from("user_profiles")
         .select("id, email, first_name, last_name")
