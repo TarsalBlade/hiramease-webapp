@@ -1,5 +1,5 @@
 import { useState, ReactNode } from 'react';
-import { Shield, Menu, LogOut, User, ChevronDown } from 'lucide-react';
+import { Shield, Menu, LogOut, User, ChevronDown, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { NotificationPanel } from './NotificationPanel';
 
@@ -17,9 +17,11 @@ interface DashboardLayoutProps {
   activeNav: string;
   onNavChange: (nav: string) => void;
   title: string;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }
 
-export function DashboardLayout({ children, navItems, activeNav, onNavChange, title }: DashboardLayoutProps) {
+export function DashboardLayout({ children, navItems, activeNav, onNavChange, title, onRefresh, refreshing }: DashboardLayoutProps) {
   const { profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -85,6 +87,16 @@ export function DashboardLayout({ children, navItems, activeNav, onNavChange, ti
             </div>
 
             <div className="flex items-center gap-4">
+              {onRefresh && (
+                <button
+                  onClick={onRefresh}
+                  disabled={refreshing}
+                  title="Refresh data"
+                  className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+                </button>
+              )}
               <NotificationPanel />
 
               <div className="relative">

@@ -404,6 +404,8 @@ export function LendingAdminDashboard() {
       activeNav={activeTab}
       onNavChange={(nav) => setActiveTab(nav as TabType)}
       title={titles[activeTab]}
+      onRefresh={fetchData}
+      refreshing={loading}
     >
       {activeTab === 'overview' && profile?.tenant_id && (
         <AnalyticsDashboard tenantId={profile.tenant_id} />

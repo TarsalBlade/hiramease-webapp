@@ -150,6 +150,8 @@ export function BorrowerDashboard() {
       activeNav={activeTab}
       onNavChange={(nav) => setActiveTab(nav as TabType)}
       title={titles[activeTab]}
+      onRefresh={fetchData}
+      refreshing={loading}
     >
       {activeTab === 'applications' && (
         <div className="space-y-6">

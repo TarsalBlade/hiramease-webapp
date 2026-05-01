@@ -85,6 +85,8 @@ export function SuperAdminDashboard() {
       activeNav={activeTab}
       onNavChange={(nav) => setActiveTab(nav as TabType)}
       title={titles[activeTab]}
+      onRefresh={fetchCompanies}
+      refreshing={loading}
     >
       {activeTab === 'overview' && <SystemOverview />}
 
