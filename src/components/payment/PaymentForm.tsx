@@ -56,11 +56,20 @@ export default function PaymentForm({
   };
 
   const initiatePayment = () => {
-    const validation = validateAmount(amount);
-    if (!validation.isValid) {
-      setValidationError(validation.error || '');
-      return;
+    if (allowCustomAmount) {
+      const validation = validateAmount(amount);
+      if (!validation.isValid) {
+        setValidationError(validation.error || '');
+        return;
+      }
+    } else {
+      // Fixed subscription amount — only require it to be positive
+      if (!amount || amount <= 0) {
+        setValidationError('Invalid payment amount.');
+        return;
+      }
     }
+    setValidationError('');
     setShowConfirmation(true);
   };
 
@@ -99,7 +108,7 @@ export default function PaymentForm({
     }
   };
 
-  const isFormValid = !validationError && amount > 0 && !loading;
+  const isFormValid = !validationError && amount > 0 && !loading && (allowCustomAmount ? amount >= 100 : true);
 
   const selectedMethodLabel = paymentMethods.find(m => m.type === selectedMethod)?.label || selectedMethod;
 

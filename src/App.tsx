@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage, SignUpPage } from './pages/auth';
@@ -11,8 +11,19 @@ type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard' | 'bus
 
 function AppContent() {
   const { user, profile, subscription, loading, refreshSubscription, refreshProfile } = useAuth();
-  const [view, setView] = useState<AppView>('landing');
+  const [viewStack, setViewStack] = useState<AppView[]>(['landing']);
 
+  const view = viewStack[viewStack.length - 1];
+
+  const navigateTo = useCallback((newView: AppView) => {
+    setViewStack(prev => [...prev, newView]);
+  }, []);
+
+  const goBack = useCallback(() => {
+    setViewStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
+  }, []);
+
+  // Auth-driven navigation: only push, never replace existing navigation history
   useEffect(() => {
     if (loading) return;
 
@@ -21,12 +32,17 @@ function AppContent() {
         profile.role === 'lending_admin' &&
         (!subscription || subscription.requires_subscription)
       ) {
-        setView('subscribe');
+        setViewStack(['subscribe']);
       } else {
-        setView('dashboard');
+        setViewStack(['dashboard']);
       }
     } else if (!user) {
-      setView('landing');
+      // Only reset to landing if we're on a protected view
+      setViewStack(prev => {
+        const current = prev[prev.length - 1];
+        if (['dashboard', 'subscribe'].includes(current)) return ['landing'];
+        return prev;
+      });
     }
   }, [user, profile, subscription, loading]);
 
@@ -41,7 +57,7 @@ function AppContent() {
 
   const handleSubscriptionComplete = async () => {
     await refreshSubscription();
-    setView('dashboard');
+    setViewStack(['dashboard']);
   };
 
   if (loading) {
@@ -76,29 +92,26 @@ function AppContent() {
     if (profile.role === 'super_admin') {
       return <SuperAdminDashboard />;
     }
-
     if (profile.role === 'lending_admin') {
       return <LendingAdminDashboard />;
     }
-
     if (profile.role === 'borrower') {
       return <BorrowerDashboard />;
     }
-
     return null;
   }
 
   if (view === 'business_model') {
-    return <BusinessModel onGetStarted={() => setView('signup')} />;
+    return <BusinessModel onGetStarted={() => navigateTo('signup')} />;
   }
 
   // Login page
   if (view === 'login') {
     return (
       <LoginPage
-        onBack={() => setView('landing')}
-        onSignUp={() => setView('signup')}
-        onSuccess={() => setView('dashboard')}
+        onBack={goBack}
+        onSignUp={() => navigateTo('signup')}
+        onSuccess={() => setViewStack(['dashboard'])}
       />
     );
   }
@@ -107,19 +120,19 @@ function AppContent() {
   if (view === 'signup') {
     return (
       <SignUpPage
-        onBack={() => setView('landing')}
-        onLogin={() => setView('login')}
-        onSuccess={() => setView('dashboard')}
-        onSubscribe={() => setView('subscribe')}
+        onBack={goBack}
+        onLogin={() => navigateTo('login')}
+        onSuccess={() => setViewStack(['dashboard'])}
+        onSubscribe={() => setViewStack(['subscribe'])}
       />
     );
   }
 
   return (
     <LandingPage
-      onLoginClick={() => setView('login')}
-      onSignUpClick={() => setView('signup')}
-      onBusinessModel={() => setView('business_model')}
+      onLoginClick={() => navigateTo('login')}
+      onSignUpClick={() => navigateTo('signup')}
+      onBusinessModel={() => navigateTo('business_model')}
     />
   );
 }

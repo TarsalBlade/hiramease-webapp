@@ -7,6 +7,32 @@ const corsHeaders = {
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+async function notifyPaymentSuccess(
+  supabaseUrl: string,
+  tenantId: string,
+  amountPhp: number,
+  paymentId: string,
+  paymentMethod: string
+) {
+  try {
+    await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "payment_success",
+        tenant_id: tenantId,
+        title: "Payment Received",
+        message: `A subscription payment of PHP ${amountPhp.toLocaleString()} has been received via ${paymentMethod}. Subscription is now active.`,
+        email_body: `<p>A subscription payment of <strong>PHP ${amountPhp.toLocaleString()}</strong> has been received and processed.</p>
+          <p><strong>Payment ID:</strong> ${paymentId}<br/><strong>Method:</strong> ${paymentMethod}</p>
+          <p>The subscription is now active.</p>`,
+      }),
+    });
+  } catch (err) {
+    console.error("Failed to send payment notification:", err);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -15,7 +41,6 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const paymongoSecretKey = Deno.env.get("PAYMONGO_SECRET_KEY");
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const webhookData = await req.json();
@@ -26,14 +51,10 @@ Deno.serve(async (req: Request) => {
     console.log("Resource ID:", resourceData?.id);
 
     if (!eventType || !resourceData) {
-      console.error("Invalid webhook payload - missing eventType or resourceData");
-      return new Response(
-        JSON.stringify({ error: "Invalid webhook payload" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return new Response(JSON.stringify({ error: "Invalid webhook payload" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const resourceId = resourceData.id;
@@ -51,20 +72,18 @@ Deno.serve(async (req: Request) => {
         paymentMethodType = source?.type || paymentAttrs?.payment_method_type || "card";
       }
 
-      console.log("Checkout session paid:", resourceId, "method:", paymentMethodType, "metadata:", JSON.stringify(metadata));
+      const amountCentavos: number = checkoutAttrs.line_items?.[0]?.amount || 0;
+      const amountPhp = amountCentavos / 100;
 
-      const { data: existingPayment, error: findError } = await supabase
+      // Update or create payment record
+      const { data: existingPayment } = await supabase
         .from("paymongo_payments")
         .select("id, status")
         .eq("paymongo_payment_id", resourceId)
         .maybeSingle();
 
-      if (findError) {
-        console.error("Error finding payment record:", findError);
-      }
-
       if (existingPayment) {
-        const { error: updateError } = await supabase
+        await supabase
           .from("paymongo_payments")
           .update({
             status: "succeeded",
@@ -72,60 +91,41 @@ Deno.serve(async (req: Request) => {
             updated_at: new Date().toISOString(),
           })
           .eq("id", existingPayment.id);
-
-        if (updateError) {
-          console.error("Error updating payment:", updateError);
-        } else {
-          console.log("Payment record updated to succeeded:", existingPayment.id);
-        }
-      } else {
-        console.log("No matching payment record found for checkout session:", resourceId);
-
-        if (metadata?.user_id && metadata?.tenant_id) {
-          const { error: insertError } = await supabase
-            .from("paymongo_payments")
-            .insert({
-              user_id: metadata.user_id,
-              tenant_id: metadata.tenant_id,
-              paymongo_payment_id: resourceId,
-              amount: checkoutAttrs.line_items?.[0]?.amount || 0,
-              currency: "PHP",
-              status: "succeeded",
-              payment_method_type: paymentMethodType,
-              description: checkoutAttrs.description || "Subscription Payment",
-              metadata: {
-                plan_id: metadata.plan_id,
-                checkout_session_id: resourceId,
-                source: "webhook_fallback",
-              },
-            });
-
-          if (insertError) {
-            console.error("Error inserting fallback payment record:", insertError);
-          } else {
-            console.log("Created fallback payment record for:", resourceId);
-          }
-        }
+      } else if (metadata?.user_id && metadata?.tenant_id) {
+        await supabase.from("paymongo_payments").insert({
+          user_id: metadata.user_id,
+          tenant_id: metadata.tenant_id,
+          paymongo_payment_id: resourceId,
+          amount: amountCentavos,
+          currency: "PHP",
+          status: "succeeded",
+          payment_method_type: paymentMethodType,
+          description: checkoutAttrs.description || "Subscription Payment",
+          metadata: {
+            plan_id: metadata.plan_id,
+            checkout_session_id: resourceId,
+            source: "webhook_fallback",
+          },
+        });
       }
 
+      // Activate subscription
       if (metadata?.tenant_id && metadata?.plan_id) {
-        const { error: rpcError } = await supabase.rpc(
-          "activate_paid_subscription",
-          {
-            p_tenant_id: metadata.tenant_id,
-            p_plan_id: metadata.plan_id,
-            p_payment_id: resourceId,
-          }
-        );
+        const { error: rpcError } = await supabase.rpc("activate_paid_subscription", {
+          p_tenant_id: metadata.tenant_id,
+          p_plan_id: metadata.plan_id,
+          p_payment_id: resourceId,
+        });
 
         if (rpcError) {
           console.error("Error activating subscription:", rpcError);
         } else {
           console.log("Subscription activated for tenant:", metadata.tenant_id);
+          // Notify superadmin + tenant admin via email and in-app
+          await notifyPaymentSuccess(supabaseUrl, metadata.tenant_id, amountPhp, resourceId, paymentMethodType);
         }
-      } else {
-        console.log("Missing metadata for subscription activation. tenant_id:", metadata?.tenant_id, "plan_id:", metadata?.plan_id);
       }
+
     } else if (
       eventType === "payment.paid" ||
       eventType === "payment_intent.succeeded"
@@ -134,26 +134,21 @@ Deno.serve(async (req: Request) => {
 
       await supabase
         .from("paymongo_payments")
-        .update({
-          status: "succeeded",
-          updated_at: new Date().toISOString(),
-        })
+        .update({ status: "succeeded", updated_at: new Date().toISOString() })
         .eq("paymongo_payment_id", resourceId);
 
       if (metadata?.tenant_id && metadata?.plan_id) {
-        const { error: rpcError } = await supabase.rpc(
-          "activate_paid_subscription",
-          {
-            p_tenant_id: metadata.tenant_id,
-            p_plan_id: metadata.plan_id,
-            p_payment_id: resourceId,
-          }
-        );
-
-        if (rpcError) {
-          console.error("Error activating subscription:", rpcError);
+        const { error: rpcError } = await supabase.rpc("activate_paid_subscription", {
+          p_tenant_id: metadata.tenant_id,
+          p_plan_id: metadata.plan_id,
+          p_payment_id: resourceId,
+        });
+        if (!rpcError) {
+          const amountPhp = (resourceData.attributes?.amount || 0) / 100;
+          await notifyPaymentSuccess(supabaseUrl, metadata.tenant_id, amountPhp, resourceId, "card");
         }
       }
+
     } else if (
       eventType === "payment.failed" ||
       eventType === "payment_intent.payment_failed" ||
@@ -161,10 +156,7 @@ Deno.serve(async (req: Request) => {
     ) {
       await supabase
         .from("paymongo_payments")
-        .update({
-          status: "failed",
-          updated_at: new Date().toISOString(),
-        })
+        .update({ status: "failed", updated_at: new Date().toISOString() })
         .eq("paymongo_payment_id", resourceId);
     } else {
       console.log("Unhandled event type:", eventType);
@@ -176,12 +168,9 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error("Webhook error:", error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });

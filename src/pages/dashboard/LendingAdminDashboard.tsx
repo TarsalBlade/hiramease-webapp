@@ -47,7 +47,7 @@ interface ApplicationWithDetails extends CreditApplication {
 }
 
 export function LendingAdminDashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, subscription } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [applications, setApplications] = useState<ApplicationWithDetails[]>([]);
   const [scoringConfig, setScoringConfig] = useState<ScoringConfiguration | null>(null);
@@ -55,8 +55,19 @@ export function LendingAdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedApplication, setSelectedApplication] = useState<ApplicationWithDetails | null>(null);
+  const [planFeatures, setPlanFeatures] = useState<Record<string, boolean>>({});
 
   const unreadCount = applications.filter((a) => !a.is_read_by_admin && ['submitted', 'under_review', 'verified'].includes(a.status)).length;
+
+  // Features available by plan tier (all plans get core features; advanced ones are gated)
+  // Starter: core only | Professional: + advanced_reports, custom_scoring, priority_support
+  // Enterprise: all features
+  const hasFeature = (key: string): boolean => {
+    // During trial, grant all features so users can explore
+    if (subscription?.status === 'trial') return true;
+    if (Object.keys(planFeatures).length === 0) return true; // fallback while loading
+    return planFeatures[key] === true;
+  };
 
   const navItems = [
     { icon: <TrendingUp className="w-5 h-5" />, label: 'Overview', href: 'overview' },
@@ -65,10 +76,12 @@ export function LendingAdminDashboard() {
     { icon: <DollarSign className="w-5 h-5" />, label: 'Loans', href: 'loans' },
     { icon: <CreditCard className="w-5 h-5" />, label: 'Payments', href: 'payments' },
     { icon: <Settings className="w-5 h-5" />, label: 'Lending Settings', href: 'lending_settings' },
-    { icon: <Sliders className="w-5 h-5" />, label: 'Credit Scoring', href: 'scoring' },
+    // Credit Scoring requires custom_scoring (Professional+)
+    ...(hasFeature('custom_scoring') ? [{ icon: <Sliders className="w-5 h-5" />, label: 'Credit Scoring', href: 'scoring' }] : []),
+    // Financials requires advanced_reports (Professional+)
+    ...(hasFeature('advanced_reports') ? [{ icon: <TrendingDown className="w-5 h-5" />, label: 'Financials', href: 'financials' }] : []),
     { icon: <Bell className="w-5 h-5" />, label: 'Notifications', href: 'notifications' },
     { icon: <Building2 className="w-5 h-5" />, label: 'Company Profile', href: 'company' },
-    { icon: <TrendingDown className="w-5 h-5" />, label: 'Financials', href: 'financials' },
     { icon: <CreditCard className="w-5 h-5" />, label: 'Billing', href: 'billing' },
   ];
 
@@ -106,6 +119,17 @@ export function LendingAdminDashboard() {
     }
 
     setScoringConfig(configResult);
+
+    // Load plan features for sidebar gating
+    if (subscription?.plan_id) {
+      const { data: plan } = await supabase
+        .from('subscription_plans')
+        .select('features')
+        .eq('id', subscription.plan_id)
+        .maybeSingle();
+      if (plan?.features) setPlanFeatures(plan.features as Record<string, boolean>);
+    }
+
     setLoading(false);
   }
 
@@ -495,8 +519,10 @@ export function LendingAdminDashboard() {
         <LoanDisbursement tenantId={profile.tenant_id} />
       )}
 
-      {activeTab === 'scoring' && scoringConfig && (
-        <ScoringConfigPanel config={scoringConfig} onUpdate={handleUpdateScoringConfig} />
+      {activeTab === 'scoring' && (
+        hasFeature('custom_scoring')
+          ? scoringConfig && <ScoringConfigPanel config={scoringConfig} onUpdate={handleUpdateScoringConfig} />
+          : <UpgradePrompt feature="Custom Credit Scoring" requiredPlan="Professional" onUpgrade={() => setActiveTab('billing')} />
       )}
 
       {activeTab === 'payments' && profile?.tenant_id && (
@@ -515,8 +541,10 @@ export function LendingAdminDashboard() {
         <CompanyProfile tenantId={profile.tenant_id} />
       )}
 
-      {activeTab === 'financials' && profile?.tenant_id && (
-        <FinancialStatements tenantId={profile.tenant_id} />
+      {activeTab === 'financials' && (
+        hasFeature('advanced_reports') && profile?.tenant_id
+          ? <FinancialStatements tenantId={profile.tenant_id} />
+          : <UpgradePrompt feature="Financial Statements & Advanced Reports" requiredPlan="Professional" onUpgrade={() => setActiveTab('billing')} />
       )}
 
       {activeTab === 'billing' && (
@@ -534,6 +562,27 @@ export function LendingAdminDashboard() {
         />
       )}
     </DashboardLayout>
+  );
+}
+
+function UpgradePrompt({ feature, requiredPlan, onUpgrade }: { feature: string; requiredPlan: string; onUpgrade: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
+      <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mb-6">
+        <Shield className="w-8 h-8 text-blue-600" />
+      </div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-2">{feature}</h2>
+      <p className="text-gray-500 mb-6 max-w-md">
+        This feature is available on the <strong>{requiredPlan}</strong> plan and above.
+        Upgrade your subscription to unlock it.
+      </p>
+      <button
+        onClick={onUpgrade}
+        className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+      >
+        Upgrade Plan
+      </button>
+    </div>
   );
 }
 

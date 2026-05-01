@@ -175,10 +175,10 @@ export function SignUpPage({ onBack, onLogin, onSuccess, onSubscribe }: SignUpPa
             Start your free trial
           </h1>
           <p className="text-primary-100 text-lg mb-8">
-           Start your 14-day free trial. Credit card required. Cancel anytime.
+            Start your 14-day free trial. No credit card required. Cancel anytime.
           </p>
           <div className="space-y-4">
-            {['14-day free trial', 'Full platform access', 'Cancel anytime'].map((item, i) => (
+            {['14-day free trial', 'No credit card required', 'Cancel anytime'].map((item, i) => (
               <div key={i} className="flex items-center gap-3 text-white">
                 <CheckCircle className="w-5 h-5 text-primary-200" />
                 <span>{item}</span>
