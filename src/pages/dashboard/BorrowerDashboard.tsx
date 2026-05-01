@@ -1042,6 +1042,7 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
   const [scoringComplete, setScoringComplete] = useState(false);
   const [scoreResult, setScoreResult] = useState<{ score: number; risk: string; recommendation: string } | null>(null);
@@ -1173,6 +1174,7 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
 
   async function handleSubmit() {
     setSubmitting(true);
+    setSubmitError(null);
 
     const { data: application, error } = await supabase
       .from('credit_applications')
@@ -1191,42 +1193,48 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
       .select()
       .single();
 
-    if (!error && application) {
-      for (const fileItem of files) {
-        const filePath = `${borrowerProfile.tenant_id}/${application.id}/${fileItem.file.name}`;
-        await supabase.storage.from('documents').upload(filePath, fileItem.file);
-        await supabase.from('documents').insert({
-          application_id: application.id,
-          document_type: fileItem.type,
-          file_name: fileItem.file.name,
-          file_path: filePath,
-          file_size_bytes: fileItem.file.size,
-          mime_type: fileItem.file.type,
-          uploaded_by: user?.id,
-          verification_status: 'pending',
-        });
-      }
-
-      try {
-        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`;
-        const { data: { session } } = await supabase.auth.getSession();
-        await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-            'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            tenant_id: borrowerProfile.tenant_id,
-            application_id: application.id,
-            loan_amount: parseFloat(form.loan_amount_php),
-            loan_purpose: form.loan_purpose,
-            action: 'new_application',
-          }),
-        });
-      } catch {}
+    if (error || !application) {
+      setSubmitError(error?.message || 'Failed to submit application. Please try again.');
+      setSubmitting(false);
+      return;
     }
+
+    // Upload documents
+    for (const fileItem of files) {
+      const filePath = `${borrowerProfile.tenant_id}/${application.id}/${fileItem.file.name}`;
+      await supabase.storage.from('documents').upload(filePath, fileItem.file);
+      await supabase.from('documents').insert({
+        application_id: application.id,
+        document_type: fileItem.type,
+        file_name: fileItem.file.name,
+        file_path: filePath,
+        file_size_bytes: fileItem.file.size,
+        mime_type: fileItem.file.type,
+        uploaded_by: user?.id,
+        verification_status: 'pending',
+      });
+    }
+
+    // Notify lending admins (fire-and-forget)
+    try {
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`;
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          tenant_id: borrowerProfile.tenant_id,
+          application_id: application.id,
+          loan_amount: parseFloat(form.loan_amount_php),
+          loan_purpose: form.loan_purpose,
+          action: 'new_application',
+        }),
+      });
+    } catch {}
 
     setSubmitting(false);
     onComplete();
@@ -1635,16 +1643,21 @@ function NewApplicationModal({ borrowerProfile, onClose, onComplete }: { borrowe
             </button>
           )}
           {step === 5 && scoringComplete && (
-            <button onClick={handleSubmit} disabled={submitting} className="btn-primary disabled:opacity-50">
-              {submitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                'Submit Application'
+            <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
+              {submitError && (
+                <p className="text-sm text-red-600 text-right">{submitError}</p>
               )}
-            </button>
+              <button onClick={handleSubmit} disabled={submitting} className="btn-primary disabled:opacity-50">
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  'Submit Application'
+                )}
+              </button>
+            </div>
           )}
         </div>
       </div>

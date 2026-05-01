@@ -100,7 +100,10 @@ export function LendingAdminDashboard() {
         .from('credit_applications')
         .select(`
           *,
-          borrower:borrower_profiles(*, user:user_profiles(*)),
+          borrower:borrower_profiles(
+            *,
+            user:user_profiles(id, first_name, last_name, email, phone, role)
+          ),
           documents(*),
           ai_scoring:ai_scoring_results(*)
         `)
@@ -109,7 +112,11 @@ export function LendingAdminDashboard() {
       getOrCreateScoringConfig(profile.tenant_id),
     ]);
 
-    if (!appsResult.error && appsResult.data) {
+    if (appsResult.error) {
+      console.error('fetchData applications error:', appsResult.error);
+    }
+
+    if (appsResult.data) {
       setApplications(
         appsResult.data.map((app) => ({
           ...app,
