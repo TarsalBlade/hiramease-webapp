@@ -12,12 +12,10 @@ type AppView = 'landing' | 'login' | 'signup' | 'subscribe' | 'dashboard' | 'bus
 
 function AppContent() {
   const { user, profile, subscription, loading, refreshSubscription, refreshProfile } = useAuth();
-  const [viewStack, setViewStack] = useState<AppView[]>(() => {
-    // On load, detect if this is a password reset redirect (Supabase appends ?type=recovery)
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('type') === 'recovery') return ['reset_password'];
-    return ['landing'];
-  });
+  const [viewStack, setViewStack] = useState<AppView[]>(['landing']);
+  // Tracks when the user arrived via a password-reset email link.
+  // While true, auth-driven navigation must not redirect to dashboard.
+  const [isRecoverySession, setIsRecoverySession] = useState(false);
 
   const view = viewStack[viewStack.length - 1];
 
@@ -29,11 +27,18 @@ function AppContent() {
     setViewStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
   }, []);
 
-  // Listen for Supabase PASSWORD_RECOVERY event (fired when user clicks the reset link)
+  // PASSWORD_RECOVERY fires after Supabase parses the reset hash and establishes
+  // a session. At that point the user is authenticated but should only see the
+  // reset form — not be redirected to their dashboard.
   useEffect(() => {
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
+        setIsRecoverySession(true);
         setViewStack(['reset_password']);
+      }
+      // Once they successfully update their password, clear the recovery flag
+      if (event === 'USER_UPDATED') {
+        setIsRecoverySession(false);
       }
     });
     return () => authSub.unsubscribe();
@@ -42,8 +47,8 @@ function AppContent() {
   // Auth-driven navigation: only push, never replace existing navigation history
   useEffect(() => {
     if (loading) return;
-    // Don't auto-redirect while user is on password reset flow
-    if (view === 'reset_password') return;
+    // Never redirect away while the user is completing a password reset
+    if (isRecoverySession || view === 'reset_password') return;
 
     if (user && profile) {
       if (

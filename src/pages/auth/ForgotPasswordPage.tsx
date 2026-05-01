@@ -18,7 +18,9 @@ export function ForgotPasswordPage({ onBack, onLogin }: ForgotPasswordPageProps)
     setLoading(true);
     setError(null);
 
-    const redirectUrl = `${window.location.origin}${window.location.pathname}?type=recovery`;
+    // Supabase appends #access_token=...&type=recovery to this URL.
+    // We only need the origin — the hash is parsed automatically by the JS client.
+    const redirectUrl = `${window.location.origin}${window.location.pathname}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: redirectUrl,
