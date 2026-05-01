@@ -193,14 +193,6 @@ export function LendingAdminDashboard() {
   async function triggerAIScoring(application: ApplicationWithDetails) {
     if (!profile?.tenant_id || !scoringConfig || !application.borrower) return;
 
-    const documents = application.documents || [];
-    const documentsVerified = checkDocumentsVerified(documents);
-
-    if (!documentsVerified) {
-      alert('All required documents must be verified before scoring.');
-      return;
-    }
-
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-credit-scoring`;
       const { data: { session } } = await supabase.auth.getSession();
@@ -221,7 +213,26 @@ export function LendingAdminDashboard() {
         throw new Error(result.error || 'Scoring failed');
       }
 
-      fetchData();
+      // Refresh the open modal immediately so scoring results appear without closing
+      const { data: refreshedApp } = await supabase
+        .from('credit_applications')
+        .select(`
+          *,
+          borrower:borrower_profiles(*, user:user_profiles(*)),
+          documents(*),
+          ai_scoring:ai_scoring_results(*)
+        `)
+        .eq('id', application.id)
+        .maybeSingle();
+
+      if (refreshedApp) {
+        const normalized = {
+          ...refreshedApp,
+          ai_scoring: Array.isArray(refreshedApp.ai_scoring) ? refreshedApp.ai_scoring[0] : refreshedApp.ai_scoring,
+        };
+        setSelectedApplication(normalized);
+        setApplications((prev) => prev.map((a) => a.id === normalized.id ? normalized : a));
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Scoring failed');
     }
@@ -910,7 +921,7 @@ function ApplicationDetailModal({
   const documents = application.documents || [];
   const allDocsVerified = checkDocumentsVerified(documents);
   const hasScoring = !!application.ai_scoring;
-  const canScore = allDocsVerified && !hasScoring && ['submitted', 'under_review', 'verified'].includes(application.status);
+  const canScore = !hasScoring && ['submitted', 'under_review', 'verified', 'scored'].includes(application.status);
   const canDecide = ['submitted', 'under_review', 'verified', 'scored'].includes(application.status);
 
   async function handleRunScoring() {
@@ -989,27 +1000,25 @@ function ApplicationDetailModal({
             <ScoreBreakdownSection scoring={application.ai_scoring} config={scoringConfig} />
           )}
 
-          {!hasScoring && (
+          {canScore && (
             <div className="bg-gray-50 rounded-xl p-6 mb-6">
               <div className="flex items-center gap-3 mb-4">
                 <Brain className="w-6 h-6 text-gray-400" />
                 <h3 className="font-semibold text-gray-900">Credit Scoring</h3>
               </div>
-
-              {!allDocsVerified ? (
-                <div className="flex items-center gap-3 text-yellow-700 bg-yellow-50 p-4 rounded-lg">
-                  <AlertTriangle className="w-5 h-5" />
-                  <p className="text-sm">All required documents must be verified before running credit scoring.</p>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">Documents verified. Ready to run AI-assisted credit scoring.</p>
-                  <button onClick={handleRunScoring} disabled={scoring || !canScore} className="btn-primary flex items-center gap-2 disabled:opacity-50">
-                    {scoring ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
-                    {scoring ? 'Scoring...' : 'Run Scoring'}
-                  </button>
+              {!allDocsVerified && (
+                <div className="flex items-center gap-3 text-yellow-700 bg-yellow-50 p-3 rounded-lg mb-4">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <p className="text-sm">Some documents are unverified. Scoring will proceed but accuracy may be lower.</p>
                 </div>
               )}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">{allDocsVerified ? 'Documents verified. Ready to run AI-assisted credit scoring.' : 'Run scoring with available information.'}</p>
+                <button onClick={handleRunScoring} disabled={scoring} className="btn-primary flex items-center gap-2 disabled:opacity-50">
+                  {scoring ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                  {scoring ? 'Scoring...' : 'Run Scoring'}
+                </button>
+              </div>
             </div>
           )}
         </div>

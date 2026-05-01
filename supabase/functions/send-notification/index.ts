@@ -9,7 +9,8 @@ const corsHeaders = {
 };
 
 const RESEND_API_KEY = "re_WvAQPCtG_P4xKaQXRQdghfDKghmZMKyz7";
-const FROM_EMAIL = "HiramEase <notifications@hiramease.com>";
+// Use verified sender domain from env, fallback to Resend's shared testing domain
+const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") || "HiramEase <onboarding@resend.dev>";
 
 interface NotificationPayload {
   action?: string;
