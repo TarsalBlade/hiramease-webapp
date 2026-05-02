@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
   DollarSign, CheckCircle, X, Loader2,
-  FileText, Search, Eye,
+  FileText, Search, Eye, CalendarDays, TrendingDown,
+  AlertCircle, Clock, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -249,67 +250,13 @@ export function LoanDisbursement({ tenantId }: LoanDisbursementProps) {
               <p className="text-gray-500">No active loans</p>
             </div>
           ) : (
-            filteredLoans.map(loan => {
-              const paidPayments = (loan.payments || []).filter(p => p.status === 'paid');
-              const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount_paid_php, 0);
-              const progress = loan.total_payable_php > 0 ? (totalPaid / loan.total_payable_php) * 100 : 0;
-              const latePayments = (loan.payments || []).filter(p => p.status === 'late' || p.status === 'missed');
-
-              return (
-                <div key={loan.id} className="card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        loan.status === 'active' ? 'bg-blue-100' : loan.status === 'paid_off' ? 'bg-green-100' : 'bg-red-100'
-                      }`}>
-                        <DollarSign className={`w-5 h-5 ${
-                          loan.status === 'active' ? 'text-blue-600' : loan.status === 'paid_off' ? 'text-green-600' : 'text-red-600'
-                        }`} />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">{loan.borrower?.user?.first_name} {loan.borrower?.user?.last_name}</p>
-                        <p className="text-sm text-gray-500">{formatPHP(loan.principal_amount_php)} - {loan.term_months} months</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {latePayments.length > 0 && (
-                        <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full">
-                          {latePayments.length} overdue
-                        </span>
-                      )}
-                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full capitalize ${
-                        loan.status === 'active' ? 'bg-blue-100 text-blue-700' :
-                        loan.status === 'paid_off' ? 'bg-green-100 text-green-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {loan.status.replace('_', ' ')}
-                      </span>
-                      <button
-                        onClick={() => setShowLoanDetail(loan)}
-                        className="text-primary-600 hover:text-primary-700 text-sm font-medium flex items-center gap-1"
-                      >
-                        <Eye className="w-4 h-4" /> View
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.min(100, progress)}%` }} />
-                      </div>
-                    </div>
-                    <span className="text-xs font-medium text-gray-600 whitespace-nowrap">
-                      {progress.toFixed(0)}% repaid
-                    </span>
-                  </div>
-                  <div className="flex justify-between mt-2 text-xs text-gray-500">
-                    <span>Paid: {formatPHP(totalPaid)}</span>
-                    <span>Monthly: {formatPHP(loan.monthly_payment_php)}</span>
-                    <span>Total: {formatPHP(loan.total_payable_php)}</span>
-                  </div>
-                </div>
-              );
-            })
+            filteredLoans.map(loan => (
+              <ActiveLoanCard
+                key={loan.id}
+                loan={loan}
+                onViewDetail={() => setShowLoanDetail(loan)}
+              />
+            ))
           )}
         </div>
       )}
@@ -328,6 +275,197 @@ export function LoanDisbursement({ tenantId }: LoanDisbursementProps) {
           loan={showLoanDetail}
           onClose={() => setShowLoanDetail(null)}
         />
+      )}
+    </div>
+  );
+}
+
+function ActiveLoanCard({
+  loan,
+  onViewDetail,
+}: {
+  loan: Loan & { borrower?: BorrowerProfile & { user?: UserProfile }; payments?: LoanPayment[] };
+  onViewDetail: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const payments = [...(loan.payments || [])].sort((a, b) => a.payment_number - b.payment_number);
+
+  const totalPaid = payments.reduce((sum, p) => sum + (p.amount_paid_php || 0), 0);
+  const remaining = Math.max(0, loan.total_payable_php - totalPaid);
+  const progress = loan.total_payable_php > 0 ? Math.min(100, (totalPaid / loan.total_payable_php) * 100) : 0;
+
+  const paidCount = payments.filter(p => p.status === 'paid').length;
+  const lateCount = payments.filter(p => p.status === 'late').length;
+  const missedCount = payments.filter(p => p.status === 'missed').length;
+  const nextDue = payments.find(p => p.status === 'pending' || p.status === 'late');
+
+  const statusColors: Record<string, string> = {
+    active: 'bg-blue-100 text-blue-700',
+    paid_off: 'bg-green-100 text-green-700',
+    defaulted: 'bg-red-100 text-red-700',
+    written_off: 'bg-gray-100 text-gray-600',
+  };
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Header row */}
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              loan.status === 'active' ? 'bg-blue-100' :
+              loan.status === 'paid_off' ? 'bg-green-100' : 'bg-red-100'
+            }`}>
+              <DollarSign className={`w-5 h-5 ${
+                loan.status === 'active' ? 'text-blue-600' :
+                loan.status === 'paid_off' ? 'text-green-600' : 'text-red-600'
+              }`} />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">
+                {loan.borrower?.user?.first_name} {loan.borrower?.user?.last_name}
+              </p>
+              <p className="text-sm text-gray-500">
+                {formatPHP(loan.principal_amount_php)} · {loan.term_months} months · {loan.interest_rate_percent}% p.a.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {(lateCount > 0 || missedCount > 0) && (
+              <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {lateCount + missedCount} overdue
+              </span>
+            )}
+            <span className={`px-2.5 py-1 text-xs font-medium rounded-full capitalize ${statusColors[loan.status] || 'bg-gray-100 text-gray-600'}`}>
+              {loan.status.replace('_', ' ')}
+            </span>
+            <button
+              onClick={onViewDetail}
+              className="text-primary-600 hover:text-primary-700 text-sm font-medium flex items-center gap-1 ml-1"
+            >
+              <Eye className="w-4 h-4" /> Detail
+            </button>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div className="mb-2">
+          <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <span>{paidCount} of {payments.length} installments paid</span>
+            <span>{progress.toFixed(0)}% repaid</span>
+          </div>
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                loan.status === 'paid_off' ? 'bg-green-500' :
+                missedCount > 0 ? 'bg-red-500' :
+                lateCount > 0 ? 'bg-yellow-500' : 'bg-blue-500'
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-between text-xs text-gray-500 mb-3">
+          <span>Paid: <span className="font-medium text-gray-700">{formatPHP(totalPaid)}</span></span>
+          <span>Monthly: <span className="font-medium text-gray-700">{formatPHP(loan.monthly_payment_php)}</span></span>
+          <span>Balance: <span className="font-medium text-gray-700">{formatPHP(remaining)}</span></span>
+        </div>
+
+        {/* Next due callout */}
+        {nextDue && loan.status === 'active' && (
+          <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm mb-3 ${
+            nextDue.status === 'late' || nextDue.status === 'missed'
+              ? 'bg-red-50 border border-red-200'
+              : 'bg-blue-50 border border-blue-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <CalendarDays className={`w-4 h-4 ${nextDue.status === 'late' ? 'text-red-600' : 'text-blue-600'}`} />
+              <span className={nextDue.status === 'late' ? 'text-red-700' : 'text-blue-700'}>
+                {nextDue.status === 'late'
+                  ? `Installment #${nextDue.payment_number} overdue by ${nextDue.days_late} day${nextDue.days_late !== 1 ? 's' : ''}`
+                  : `Installment #${nextDue.payment_number} due ${new Date(nextDue.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+              </span>
+            </div>
+            <span className={`font-semibold ${nextDue.status === 'late' ? 'text-red-700' : 'text-blue-700'}`}>
+              {formatPHP(nextDue.amount_due_php)}
+            </span>
+          </div>
+        )}
+
+        {/* Expand/collapse schedule toggle */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors pt-1"
+        >
+          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {expanded ? 'Hide' : 'Show'} payment schedule ({payments.length} installments)
+        </button>
+      </div>
+
+      {/* Inline payment schedule */}
+      {expanded && (
+        <div className="border-t border-gray-100">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">#</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Due Date</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount Due</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Paid</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date Paid</th>
+                  <th className="text-center px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {payments.map(p => {
+                  const statusCfg: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
+                    paid:    { label: 'Paid',      cls: 'bg-green-100 text-green-700',  icon: <CheckCircle className="w-3 h-3" /> },
+                    late:    { label: `Late${p.days_late > 0 ? ` (${p.days_late}d)` : ''}`, cls: 'bg-yellow-100 text-yellow-700', icon: <AlertCircle className="w-3 h-3" /> },
+                    missed:  { label: 'Missed',    cls: 'bg-red-100 text-red-700',      icon: <AlertCircle className="w-3 h-3" /> },
+                    pending: { label: 'Upcoming',  cls: 'bg-gray-100 text-gray-600',    icon: <Clock className="w-3 h-3" /> },
+                  };
+                  const cfg = statusCfg[p.status] || statusCfg.pending;
+
+                  return (
+                    <tr key={p.id} className={`${
+                      p.status === 'late' ? 'bg-yellow-50/40' :
+                      p.status === 'missed' ? 'bg-red-50/40' : 'hover:bg-gray-50'
+                    }`}>
+                      <td className="px-4 py-2.5 text-gray-500 font-medium">{p.payment_number}</td>
+                      <td className="px-4 py-2.5 text-gray-900">
+                        {new Date(p.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-medium text-gray-900">{formatPHP(p.amount_due_php)}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-700">
+                        {p.amount_paid_php > 0 ? formatPHP(p.amount_paid_php) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-xs text-gray-500">
+                        {p.paid_date
+                          ? new Date(p.paid_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.cls}`}>
+                          {cfg.icon}{cfg.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-sm">
+            <div className="flex items-center gap-1.5 text-gray-600">
+              <TrendingDown className="w-4 h-4" />
+              Outstanding balance
+            </div>
+            <span className="font-bold text-gray-900">{formatPHP(remaining)}</span>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -374,13 +512,14 @@ function DisbursementConfirmModal({
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-160px)]">
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <p className="text-sm text-blue-700">
-              This will create a loan record and generate the full payment schedule for the borrower.
+              Confirming will create a loan record and generate the full monthly payment schedule for the borrower. They will see all dues in their <strong>My Loans</strong> tab immediately.
             </p>
           </div>
 
+          {/* Loan summary */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-xs text-gray-500">Borrower</p>
@@ -402,7 +541,7 @@ function DisbursementConfirmModal({
             </div>
           </div>
 
-          <div className="border-t border-gray-200 pt-4 space-y-2">
+          <div className="border-t border-gray-200 pt-3 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Monthly Payment</span>
               <span className="font-semibold text-gray-900">{formatPHP(computation.monthlyPayment)}</span>
@@ -411,17 +550,55 @@ function DisbursementConfirmModal({
               <span className="text-gray-600">Total Interest</span>
               <span className="font-medium text-gray-900">{formatPHP(computation.totalInterest)}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Total Fees</span>
-              <span className="font-medium text-gray-900">{formatPHP(computation.totalFees)}</span>
-            </div>
+            {computation.totalFees > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Total Fees</span>
+                <span className="font-medium text-gray-900">{formatPHP(computation.totalFees)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm font-semibold pt-2 border-t border-gray-100">
               <span className="text-gray-900">Total Payable</span>
               <span className="text-gray-900">{formatPHP(computation.totalAmount)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-green-700 font-medium">Net Proceeds</span>
+              <span className="text-green-700 font-medium">Net Proceeds to Borrower</span>
               <span className="text-green-700 font-bold">{formatPHP(computation.netProceeds)}</span>
+            </div>
+          </div>
+
+          {/* Payment schedule preview */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <CalendarDays className="w-3.5 h-3.5" />
+              Payment Schedule Preview ({term} installments)
+            </p>
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="overflow-y-auto max-h-48">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">#</th>
+                      <th className="text-left px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Due Date</th>
+                      <th className="text-right px-3 py-2 text-gray-500 font-semibold uppercase tracking-wide">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {computation.schedule.map((entry, idx) => {
+                      const dueDate = new Date();
+                      dueDate.setMonth(dueDate.getMonth() + idx + 1);
+                      return (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                          <td className="px-3 py-2 text-gray-900">
+                            {dueDate.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-gray-900">{formatPHP(entry.payment)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
