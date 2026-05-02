@@ -388,9 +388,14 @@ function ActiveLoanCard({
                   : `Installment #${nextDue.payment_number} due ${new Date(nextDue.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`}
               </span>
             </div>
-            <span className={`font-semibold ${nextDue.status === 'late' ? 'text-red-700' : 'text-blue-700'}`}>
-              {formatPHP(nextDue.amount_due_php)}
-            </span>
+            <div className={`text-right ${nextDue.status === 'late' ? 'text-red-700' : 'text-blue-700'}`}>
+              <span className="font-semibold">
+                {formatPHP(Math.max(0, nextDue.amount_due_php - (nextDue.amount_paid_php || 0)))}
+              </span>
+              {(nextDue.amount_paid_php || 0) > 0 && (
+                <p className="text-xs opacity-70">{formatPHP(nextDue.amount_paid_php)} advance credited</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -438,7 +443,16 @@ function ActiveLoanCard({
                       <td className="px-4 py-2.5 text-gray-900">
                         {new Date(p.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-medium text-gray-900">{formatPHP(p.amount_due_php)}</td>
+                      <td className="px-4 py-2.5 text-right font-medium text-gray-900">
+                        {p.status === 'pending' && (p.amount_paid_php || 0) > 0 ? (
+                          <div>
+                            <span>{formatPHP(Math.max(0, p.amount_due_php - (p.amount_paid_php || 0)))}</span>
+                            <p className="text-xs text-gray-400 font-normal">{formatPHP(p.amount_paid_php)} advance</p>
+                          </div>
+                        ) : (
+                          formatPHP(p.amount_due_php)
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-gray-700">
                         {p.amount_paid_php > 0 ? formatPHP(p.amount_paid_php) : <span className="text-gray-300">—</span>}
                       </td>
@@ -676,8 +690,19 @@ function LoanDetailModal({
                   <tr key={p.id} className="hover:bg-gray-50">
                     <td className="px-4 py-2.5 text-gray-600">{p.payment_number}</td>
                     <td className="px-4 py-2.5 text-gray-900">{new Date(p.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-900 font-medium">{formatPHP(p.amount_due_php)}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-900">{formatPHP(p.amount_paid_php)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-900 font-medium">
+                      {p.status === 'pending' && (p.amount_paid_php || 0) > 0 ? (
+                        <div>
+                          <span>{formatPHP(Math.max(0, p.amount_due_php - (p.amount_paid_php || 0)))}</span>
+                          <p className="text-xs text-gray-400 font-normal">{formatPHP(p.amount_paid_php)} advance</p>
+                        </div>
+                      ) : (
+                        formatPHP(p.amount_due_php)
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-gray-900">
+                      {(p.amount_paid_php || 0) > 0 ? formatPHP(p.amount_paid_php) : <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-center">
                       <span className={`px-2 py-0.5 text-xs font-medium rounded-full capitalize ${
                         p.status === 'paid' ? 'bg-green-100 text-green-700' :
