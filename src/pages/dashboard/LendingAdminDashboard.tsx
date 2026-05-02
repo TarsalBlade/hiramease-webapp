@@ -316,6 +316,26 @@ export function LendingAdminDashboard() {
     await sendLoanNotification(application, 'rejected', undefined, decisionRow?.rejection_reason || undefined);
   }
 
+  async function handleSendApprovalEmail(application: ApplicationWithDetails) {
+    const { data: decisionRow } = await supabase
+      .from('application_decisions')
+      .select('approved_amount_php, approved_term_months, interest_rate_percent')
+      .eq('application_id', application.id)
+      .maybeSingle();
+
+    await sendLoanNotification(
+      application,
+      'approved',
+      decisionRow
+        ? {
+            amount: decisionRow.approved_amount_php || undefined,
+            term: decisionRow.approved_term_months || undefined,
+            rate: decisionRow.interest_rate_percent || undefined,
+          }
+        : undefined
+    );
+  }
+
   async function handleDecision(
     applicationId: string,
     decision: 'approved' | 'rejected',
@@ -587,6 +607,7 @@ export function LendingAdminDashboard() {
           onTriggerAI={triggerAIScoring}
           onDecision={handleDecision}
           onSendEmail={handleSendRejectionEmail}
+          onSendApprovalEmail={handleSendApprovalEmail}
         />
       )}
     </DashboardLayout>
@@ -901,6 +922,7 @@ function ApplicationDetailModal({
   onTriggerAI,
   onDecision,
   onSendEmail,
+  onSendApprovalEmail,
 }: {
   application: ApplicationWithDetails;
   scoringConfig: ScoringConfiguration | null;
@@ -916,11 +938,14 @@ function ApplicationDetailModal({
     rejectionReason?: string
   ) => void;
   onSendEmail: (application: ApplicationWithDetails) => Promise<void>;
+  onSendApprovalEmail: (application: ApplicationWithDetails) => Promise<void>;
 }) {
   const [showDecisionModal, setShowDecisionModal] = useState<'approve' | 'reject' | null>(null);
   const [scoring, setScoring] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [sendingApprovalEmail, setSendingApprovalEmail] = useState(false);
+  const [approvalEmailSent, setApprovalEmailSent] = useState(false);
 
   const documents = application.documents || [];
   const allDocsVerified = checkDocumentsVerified(documents);
@@ -940,6 +965,14 @@ function ApplicationDetailModal({
     setSendingEmail(false);
     setEmailSent(true);
     setTimeout(() => setEmailSent(false), 4000);
+  }
+
+  async function handleSendApprovalEmailClick() {
+    setSendingApprovalEmail(true);
+    await onSendApprovalEmail(application);
+    setSendingApprovalEmail(false);
+    setApprovalEmailSent(true);
+    setTimeout(() => setApprovalEmailSent(false), 4000);
   }
 
   return (
@@ -1028,6 +1061,26 @@ function ApplicationDetailModal({
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap gap-3 justify-end">
+          {application.status === 'approved' && (
+            <button
+              onClick={handleSendApprovalEmailClick}
+              disabled={sendingApprovalEmail}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium border transition-colors disabled:opacity-50 ${
+                approvalEmailSent
+                  ? 'border-green-300 bg-green-50 text-green-700'
+                  : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+              }`}
+            >
+              {sendingApprovalEmail ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : approvalEmailSent ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <Mail className="w-4 h-4" />
+              )}
+              {sendingApprovalEmail ? 'Sending...' : approvalEmailSent ? 'Email Sent' : 'Send Approval Email'}
+            </button>
+          )}
           {application.status === 'rejected' && (
             <button
               onClick={handleSendEmail}
