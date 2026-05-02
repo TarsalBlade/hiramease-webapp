@@ -269,9 +269,14 @@ function LoanCard({ loan, expanded, onToggle }: { loan: LoanWithPayments; expand
                 : `Next payment due ${new Date(nextDue.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`}
             </span>
           </div>
-          <span className={`font-semibold ${nextDue.status === 'late' ? 'text-red-700' : 'text-blue-700'}`}>
-            {formatPHP(nextDue.amount_due_php)}
-          </span>
+          <div className={`text-right ${nextDue.status === 'late' ? 'text-red-700' : 'text-blue-700'}`}>
+            <span className="font-semibold">
+              {formatPHP(Math.max(0, nextDue.amount_due_php - (nextDue.amount_paid_php || 0)))}
+            </span>
+            {(nextDue.amount_paid_php || 0) > 0 && (
+              <p className="text-xs opacity-70">{formatPHP(nextDue.amount_paid_php)} advance credited</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -358,7 +363,16 @@ function PaymentRow({ payment: p }: { payment: LoanPayment }) {
       <td className="px-6 py-3 text-gray-900">
         {new Date(p.due_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
       </td>
-      <td className="px-6 py-3 text-right font-medium text-gray-900">{formatPHP(p.amount_due_php)}</td>
+      <td className="px-6 py-3 text-right font-medium text-gray-900">
+        {p.status === 'pending' && (p.amount_paid_php || 0) > 0 ? (
+          <div>
+            <span>{formatPHP(Math.max(0, p.amount_due_php - (p.amount_paid_php || 0)))}</span>
+            <p className="text-xs text-gray-400 font-normal">{formatPHP(p.amount_paid_php)} advance</p>
+          </div>
+        ) : (
+          formatPHP(p.amount_due_php)
+        )}
+      </td>
       <td className="px-6 py-3 text-right text-gray-700">
         {p.amount_paid_php > 0 ? formatPHP(p.amount_paid_php) : <span className="text-gray-300">—</span>}
       </td>
