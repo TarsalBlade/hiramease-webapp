@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import {
   DollarSign, ChevronDown, ChevronUp, CheckCircle, Clock,
-  AlertCircle, XCircle, TrendingDown, Calendar, Loader2,
+  AlertCircle, XCircle, TrendingDown, Calendar, Loader2, Hourglass,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatPHP } from '../../utils/loanCalculator';
-import type { Loan, LoanPayment } from '../../types/database';
+import type { Loan, LoanPayment, CreditApplication, ApplicationDecision } from '../../types/database';
 
 interface LoanWithPayments extends Loan {
   payments: LoanPayment[];
+}
+
+interface ApprovedApplication extends CreditApplication {
+  decision?: ApplicationDecision;
 }
 
 interface BorrowerLoanTrackerProps {
@@ -17,24 +21,39 @@ interface BorrowerLoanTrackerProps {
 
 export function BorrowerLoanTracker({ borrowerId }: BorrowerLoanTrackerProps) {
   const [loans, setLoans] = useState<LoanWithPayments[]>([]);
+  const [approvedApps, setApprovedApps] = useState<ApprovedApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (borrowerId) fetchLoans();
+    if (borrowerId) fetchData();
   }, [borrowerId]);
 
-  async function fetchLoans() {
+  async function fetchData() {
     setLoading(true);
     await (supabase.rpc as any)('refresh_overdue_loan_payments');
 
-    const { data } = await supabase
-      .from('loans')
-      .select('*, payments:loan_payments(*)')
-      .eq('borrower_id', borrowerId)
-      .order('disbursed_at', { ascending: false });
+    const [loansRes, appsRes] = await Promise.all([
+      supabase
+        .from('loans')
+        .select('*, payments:loan_payments(*)')
+        .eq('borrower_id', borrowerId)
+        .order('disbursed_at', { ascending: false }),
+      supabase
+        .from('credit_applications')
+        .select('*, decision:application_decisions(*)')
+        .eq('borrower_id', borrowerId)
+        .eq('status', 'approved')
+        .order('decided_at', { ascending: false }),
+    ]);
 
-    if (data) setLoans(data as LoanWithPayments[]);
+    if (loansRes.data) setLoans(loansRes.data as LoanWithPayments[]);
+    if (appsRes.data) {
+      setApprovedApps(appsRes.data.map((app: any) => ({
+        ...app,
+        decision: Array.isArray(app.decision) ? app.decision[0] : app.decision,
+      })));
+    }
     setLoading(false);
   }
 
@@ -46,7 +65,7 @@ export function BorrowerLoanTracker({ borrowerId }: BorrowerLoanTrackerProps) {
     );
   }
 
-  if (loans.length === 0) {
+  if (loans.length === 0 && approvedApps.length === 0) {
     return (
       <div className="text-center py-16 bg-gray-50 rounded-xl border border-gray-200">
         <DollarSign className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -58,6 +77,9 @@ export function BorrowerLoanTracker({ borrowerId }: BorrowerLoanTrackerProps) {
 
   return (
     <div className="space-y-5">
+      {approvedApps.map((app) => (
+        <ApprovedLoanCard key={app.id} application={app} />
+      ))}
       {loans.map((loan) => (
         <LoanCard
           key={loan.id}
@@ -66,6 +88,66 @@ export function BorrowerLoanTracker({ borrowerId }: BorrowerLoanTrackerProps) {
           onToggle={() => setExpandedLoanId(expandedLoanId === loan.id ? null : loan.id)}
         />
       ))}
+    </div>
+  );
+}
+
+function ApprovedLoanCard({ application: app }: { application: ApprovedApplication }) {
+  const amount = app.decision?.approved_amount_php || app.loan_amount_php;
+  const term = app.decision?.approved_term_months || app.loan_term_months;
+  const rate = app.decision?.interest_rate_percent;
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-green-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+              <Hourglass className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <p className="font-semibold text-gray-900">{formatPHP(amount)} Loan — Approved</p>
+                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                  Awaiting Disbursement
+                </span>
+              </div>
+              <p className="text-sm text-gray-500">
+                {app.application_number} · {term} months{rate ? ` · ${rate}% p.a.` : ''}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-green-700">
+            Your loan has been approved and is pending fund release by the lending company. You will be notified once disbursement is complete.
+          </p>
+        </div>
+
+        {app.decision?.conditions && (
+          <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
+            <p className="text-xs font-semibold text-yellow-800 uppercase tracking-wide mb-1">Conditions</p>
+            <p className="text-sm text-yellow-700">{app.decision.conditions}</p>
+          </div>
+        )}
+
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="bg-gray-50 rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-0.5">Approved Amount</p>
+            <p className="text-sm font-bold text-gray-900">{formatPHP(amount)}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-0.5">Term</p>
+            <p className="text-sm font-bold text-gray-900">{term} months</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-0.5">Interest Rate</p>
+            <p className="text-sm font-bold text-gray-900">{rate ? `${rate}% p.a.` : '—'}</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
