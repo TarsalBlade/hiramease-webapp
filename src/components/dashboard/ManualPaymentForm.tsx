@@ -80,7 +80,13 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
       .select('id, principal_amount_php, term_months, status, monthly_payment_php')
       .eq('borrower_id', borrowerId)
       .eq('status', 'active');
-    if (data) setLoans(data as Loan[]);
+    if (data) {
+      setLoans(data as Loan[]);
+      // Auto-select if only one active loan
+      if (data.length === 1) {
+        setForm(prev => ({ ...prev, loan_id: data[0].id }));
+      }
+    }
   }
 
   async function fetchRecentPayments() {
@@ -95,10 +101,13 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
 
   async function handleSubmit() {
     if (!form.borrower_id || !form.amount_php || !user?.id) return;
+    if (loans.length > 0 && !form.loan_id) {
+      alert('Please select the loan this payment is for.');
+      return;
+    }
 
     setSaving(true);
 
-    // First refresh overdue statuses so late/missed are up to date
     await (supabase.rpc as any)('refresh_overdue_loan_payments');
 
     const { error } = await supabase.from('manual_payments').insert({
@@ -122,11 +131,16 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
 
     // Apply payment to the loan's installment schedule
     if (form.loan_id) {
-      await (supabase.rpc as any)('apply_manual_payment_to_loan', {
+      const { error: rpcError } = await (supabase.rpc as any)('apply_manual_payment_to_loan', {
         p_loan_id: form.loan_id,
         p_amount: parseFloat(form.amount_php),
         p_paid_date: form.payment_date,
       });
+      if (rpcError) {
+        alert(`Payment was recorded but failed to update the installment schedule: ${rpcError.message}`);
+        setSaving(false);
+        return;
+      }
     }
 
     setSuccess(true);
@@ -231,19 +245,25 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
 
             {form.borrower_id && loans.length > 0 && (
               <div>
-                <label className="label">Associated Loan (Optional)</label>
+                <label className="label">Loan <span className="text-red-500">*</span></label>
                 <select
                   value={form.loan_id}
                   onChange={(e) => setForm({ ...form, loan_id: e.target.value })}
                   className="input-field"
                 >
-                  <option value="">No specific loan</option>
+                  <option value="">— Select loan —</option>
                   {loans.map((loan) => (
                     <option key={loan.id} value={loan.id}>
-                      PHP {Number(loan.principal_amount_php).toLocaleString()} - {loan.term_months}mo - PHP {Number(loan.monthly_payment_php).toLocaleString()}/mo
+                      PHP {Number(loan.principal_amount_php).toLocaleString()} · {loan.term_months} months · PHP {Number(loan.monthly_payment_php).toLocaleString()}/mo
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-500 mt-1">Selecting a loan will automatically apply this payment to the next due installment.</p>
+              </div>
+            )}
+            {form.borrower_id && loans.length === 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-700">
+                This borrower has no active loans. The payment will be recorded without being applied to any installment schedule.
               </div>
             )}
 
@@ -325,7 +345,7 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
               <button onClick={() => setShowForm(false)} className="btn-outline">Cancel</button>
               <button
                 onClick={handleSubmit}
-                disabled={saving || !form.borrower_id || !form.amount_php}
+                disabled={saving || !form.borrower_id || !form.amount_php || (loans.length > 0 && !form.loan_id)}
                 className="btn-primary flex items-center gap-2 disabled:opacity-50"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
