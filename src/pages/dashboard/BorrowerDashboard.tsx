@@ -22,11 +22,11 @@ import { DashboardLayout } from '../../components/dashboard/DashboardLayout';
 import { FileUpload as FileUploadComponent } from '../../components/dashboard/FileUpload';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { PaymentHistory } from '../../components/payment';
+import { BorrowerLoanTracker } from '../../components/dashboard/BorrowerLoanTracker';
 import { calculateLoan, formatPHP } from '../../utils/loanCalculator';
 import type { CreditApplication, BorrowerProfile, Document, ApplicationDecision, AIScoringResult, TenantLendingSettings } from '../../types/database';
 
-type TabType = 'applications' | 'profile' | 'payments';
+type TabType = 'applications' | 'loans' | 'profile';
 
 interface ApplicationWithDetails extends CreditApplication {
   documents?: Document[];
@@ -55,7 +55,7 @@ export function BorrowerDashboard() {
 
   const navItems = [
     { icon: <FileText className="w-5 h-5" />, label: 'My Applications', href: 'applications' },
-    { icon: <Wallet className="w-5 h-5" />, label: 'Payments', href: 'payments' },
+    { icon: <Wallet className="w-5 h-5" />, label: 'My Loans', href: 'loans' },
     { icon: <User className="w-5 h-5" />, label: 'Profile', href: 'profile' },
   ];
 
@@ -140,7 +140,7 @@ export function BorrowerDashboard() {
 
   const titles: Record<TabType, string> = {
     applications: 'My Applications',
-    payments: 'Payment History',
+    loans: 'My Loans',
     profile: 'My Profile',
   };
 
@@ -207,9 +207,16 @@ export function BorrowerDashboard() {
         </div>
       )}
 
-      {activeTab === 'payments' && (
-        <div className="card p-6">
-          <PaymentHistory />
+      {activeTab === 'loans' && (
+        <div className="space-y-4">
+          {borrowerProfile ? (
+            <BorrowerLoanTracker borrowerId={borrowerProfile.id} />
+          ) : (
+            <div className="card p-8 text-center">
+              <Wallet className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">Complete a loan application to see your loans here.</p>
+            </div>
+          )}
         </div>
       )}
 

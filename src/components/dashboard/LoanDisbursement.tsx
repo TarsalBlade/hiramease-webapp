@@ -35,6 +35,9 @@ export function LoanDisbursement({ tenantId }: LoanDisbursementProps) {
   async function fetchData() {
     setLoading(true);
 
+    // Refresh overdue installment statuses before loading
+    await (supabase.rpc as any)('refresh_overdue_loan_payments');
+
     const [appsRes, loansRes, settingsRes] = await Promise.all([
       supabase
         .from('credit_applications')

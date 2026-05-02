@@ -97,6 +97,10 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
     if (!form.borrower_id || !form.amount_php || !user?.id) return;
 
     setSaving(true);
+
+    // First refresh overdue statuses so late/missed are up to date
+    await (supabase.rpc as any)('refresh_overdue_loan_payments');
+
     const { error } = await supabase.from('manual_payments').insert({
       borrower_id: form.borrower_id,
       loan_id: form.loan_id || null,
@@ -112,22 +116,33 @@ export function ManualPaymentForm({ tenantId }: ManualPaymentFormProps) {
 
     if (error) {
       alert('Failed to record payment. Please try again.');
-    } else {
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-      setForm({
-        borrower_id: '',
-        loan_id: '',
-        amount_php: '',
-        payment_date: new Date().toISOString().split('T')[0],
-        payment_method: 'cash',
-        reference_number: '',
-        receipt_number: '',
-        notes: '',
-      });
-      setShowForm(false);
-      fetchRecentPayments();
+      setSaving(false);
+      return;
     }
+
+    // Apply payment to the loan's installment schedule
+    if (form.loan_id) {
+      await (supabase.rpc as any)('apply_manual_payment_to_loan', {
+        p_loan_id: form.loan_id,
+        p_amount: parseFloat(form.amount_php),
+        p_paid_date: form.payment_date,
+      });
+    }
+
+    setSuccess(true);
+    setTimeout(() => setSuccess(false), 3000);
+    setForm({
+      borrower_id: '',
+      loan_id: '',
+      amount_php: '',
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: 'cash',
+      reference_number: '',
+      receipt_number: '',
+      notes: '',
+    });
+    setShowForm(false);
+    fetchRecentPayments();
     setSaving(false);
   }
 
